@@ -1,0 +1,3 @@
+interface:
+  display_name: "Logic Trace Auditor"
+  short_description: "Trace every Compose interaction through ViewModel, use cases, repositories, services and persis"

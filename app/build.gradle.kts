@@ -100,10 +100,6 @@ dependencies {
     // ── Play Billing ──────────────────────────────────────────────────────
     implementation(libs.play.billing.ktx)
 
-    // ── Glance (home-screen widget) ───────────────────────────────────────
-    implementation(libs.androidx.glance.appwidget)
-    implementation(libs.androidx.glance.material3)
-
     // ── Test ──────────────────────────────────────────────────────────────
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

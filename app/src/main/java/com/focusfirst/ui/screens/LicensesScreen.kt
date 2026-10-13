@@ -20,8 +20,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.size
+import com.focusfirst.ui.theme.TokiTypography
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,12 +70,12 @@ fun LicensesScreen(onBack: () -> Unit) {
                 ) {
                     Text(
                         text     = name,
-                        fontSize = 14.sp,
+                        style    = TokiTypography.rowTitle,
                         color    = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
                         text     = license,
-                        fontSize = 12.sp,
+                        style    = TokiTypography.supporting,
                         color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                     )
                 }

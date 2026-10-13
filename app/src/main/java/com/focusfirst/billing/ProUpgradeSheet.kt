@@ -41,12 +41,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.focusfirst.analytics.TokiAnalytics
+import com.focusfirst.ui.theme.TokiTypography
 import kotlinx.coroutines.delay
 
 private val SheetBackground = Color(0xFF121212)
@@ -178,14 +178,13 @@ private fun PurchasedContent(onDismiss: () -> Unit) {
     Spacer(Modifier.height(20.dp))
     Text(
         text       = "You're Pro!",
-        fontSize   = 28.sp,
-        fontWeight = FontWeight.Bold,
+        style      = TokiTypography.cardTitle,
         color      = Color.White,
     )
     Spacer(Modifier.height(8.dp))
     Text(
         text     = "All Pro features are now unlocked.",
-        fontSize = 15.sp,
+        style    = TokiTypography.supporting,
         color    = Color.White.copy(alpha = 0.65f),
     )
     Spacer(Modifier.height(24.dp))
@@ -202,8 +201,7 @@ private fun PurchasedContent(onDismiss: () -> Unit) {
     ) {
         Text(
             text       = "Start focusing",
-            fontSize   = 15.sp,
-            fontWeight = FontWeight.SemiBold,
+            style      = TokiTypography.button,
         )
     }
     Spacer(Modifier.height(24.dp))
@@ -224,14 +222,13 @@ private fun UpgradeContent(
 
     Text(
         text       = "Toki Pro",
-        fontSize   = 24.sp,
-        fontWeight = FontWeight.Bold,
+        style      = TokiTypography.cardTitle,
         color      = Color.White,
     )
     Spacer(Modifier.height(4.dp))
     Text(
         text     = "Monthly subscription. Cancel anytime in Google Play.",
-        fontSize = 13.sp,
+        style    = TokiTypography.supporting,
         color    = Color.White.copy(alpha = 0.5f),
     )
 
@@ -245,8 +242,7 @@ private fun UpgradeContent(
     ) {
         Text(
             text       = proPrice ?: "Loading...",
-            fontSize   = 36.sp,
-            fontWeight = FontWeight.Bold,
+            style      = TokiTypography.amountInput,
             color      = Color.White,
         )
     }
@@ -268,7 +264,7 @@ private fun UpgradeContent(
                 Spacer(Modifier.width(12.dp))
                 Text(
                     text     = feature,
-                    fontSize = 14.sp,
+                    style    = TokiTypography.rowTitle,
                     color    = Color.White.copy(alpha = 0.85f),
                 )
             }
@@ -298,8 +294,7 @@ private fun UpgradeContent(
         } else {
             Text(
                 text       = proPrice?.let { "Start Pro - $it / month" } ?: "Loading price...",
-                fontSize   = 16.sp,
-                fontWeight = FontWeight.SemiBold,
+                style      = TokiTypography.button.copy(fontSize = 16.sp),
             )
         }
     }
@@ -312,7 +307,7 @@ private fun UpgradeContent(
     ) {
         Text(
             text     = "Restore purchase",
-            fontSize = 14.sp,
+            style    = TokiTypography.action,
             color    = Color.White.copy(alpha = 0.5f),
         )
     }
@@ -323,7 +318,7 @@ private fun UpgradeContent(
     ) {
         Text(
             text     = "Maybe later",
-            fontSize = 14.sp,
+            style    = TokiTypography.action,
             color    = Color.White.copy(alpha = 0.35f),
         )
     }

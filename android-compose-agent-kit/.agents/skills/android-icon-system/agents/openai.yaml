@@ -1,0 +1,3 @@
+interface:
+  display_name: "Hugeicons Registry"
+  short_description: "Centralize Hugeicons semantic icons and sizing for Jetpack Compose without assuming an unverifi"

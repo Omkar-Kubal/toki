@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.focusfirst.data.SettingsRepository
 import com.focusfirst.export.ExportManager
 import com.focusfirst.data.model.AmbientSound
+import com.focusfirst.util.ThemeModePolicy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
@@ -59,6 +60,12 @@ class SettingsViewModel @Inject constructor(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = false,
+    )
+
+    val themeMode: StateFlow<String> = settingsRepository.themeMode.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = ThemeModePolicy.DARK,
     )
 
     val notificationPermissionAsked: StateFlow<Boolean> =
@@ -147,10 +154,12 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    @Suppress("unused") // kept for DataStore backward-compat; no longer surfaced in UI
     fun updateThemeMode(value: String) {
         viewModelScope.launch {
-            settingsRepository.update(SettingsRepository.KEY_THEME_MODE, value)
+            settingsRepository.update(
+                SettingsRepository.KEY_THEME_MODE,
+                ThemeModePolicy.normalize(value),
+            )
         }
     }
 

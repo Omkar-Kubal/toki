@@ -70,8 +70,8 @@ fun TimerRing(
     size:       Dp       = 280.dp,
 ) {
     // ── Phase colour ──────────────────────────────────────────────────────────
-    // Flow mode uses purple; Pomodoro phases use their standard accent colors.
-    val ringColor  = if (timerState.timerMode == TimerMode.FLOW) Color(0xFF9B59FF)
+    // Flow uses a softer neutral; all timer modes follow the active theme.
+    val ringColor  = if (timerState.timerMode == TimerMode.FLOW) MaterialTheme.colorScheme.onSurfaceVariant
                      else timerState.phase.ringColor()
     val textColor  = MaterialTheme.colorScheme.onBackground
     val typography = MaterialTheme.typography

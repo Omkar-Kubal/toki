@@ -28,10 +28,17 @@ import com.focusfirst.data.repository.FocusGuardRepository
 import com.focusfirst.service.SoundManager
 import com.focusfirst.service.TimerAlarmWorker
 import com.focusfirst.service.TimerForegroundService
+import com.focusfirst.receiver.BootReceiver
 import com.focusfirst.service.cancelAlarm
 import com.focusfirst.service.scheduleAlarm
 import com.focusfirst.util.BadgeEvaluator
+import com.focusfirst.util.DeepLinkDuration
 import com.focusfirst.util.DndManager
+import com.focusfirst.util.TimerRecoveryDecision
+import com.focusfirst.util.TimerRecoveryPolicy
+import com.focusfirst.util.TimerRecoverySnapshot
+import com.focusfirst.util.TimerRunStatus
+import com.focusfirst.util.TimerStartDurationPolicy
 import com.google.firebase.Firebase
 import com.google.firebase.crashlytics.crashlytics
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -221,6 +228,10 @@ class TimerViewModel @Inject constructor(
     // ========================================================================
 
     private var sessionStartMs: Long = 0L
+    private var runStartedAtMs: Long = 0L
+    private val timerPrefs by lazy {
+        application.getSharedPreferences(BootReceiver.PREFS_NAME, Context.MODE_PRIVATE)
+    }
 
     /**
      * Cumulative count of FOCUS phases completed in the current Pomodoro cycle.
@@ -263,6 +274,7 @@ class TimerViewModel @Inject constructor(
                 }
             }
         }
+        restorePersistedTimer()
     }
 
     // ========================================================================
@@ -272,22 +284,34 @@ class TimerViewModel @Inject constructor(
     /**
      * Starts a fresh FOCUS session in Pomodoro (count-down) mode.
      */
-    fun start(preset: IntervalPreset = _timerState.value.preset) {
-        val durationSeconds = focusMinutesFlow.value * 60
-        sessionStartMs = System.currentTimeMillis()
-
-        _timerState.update { current ->
-            current.copy(
-                phase            = TimerPhase.FOCUS,
-                preset           = preset,
-                timerMode        = TimerMode.POMODORO,
-                totalSeconds     = durationSeconds,
-                remainingSeconds = durationSeconds,
-                elapsedSeconds   = 0,
-                isRunning        = true,
-                isPaused         = false,
-            )
-        }
+    fun start(
+        preset: IntervalPreset = _timerState.value.preset,
+        durationMinutesOverride: Int? = null,
+    ) {
+        val durationSeconds = TimerStartDurationPolicy.secondsForStart(
+            configuredDurationSeconds = _timerState.value.totalSeconds,
+            requestedDurationMinutes = durationMinutesOverride,
+        )
+        val now = System.currentTimeMillis()
+        sessionStartMs = now
+        runStartedAtMs = now
+        val runningState = _timerState.value.copy(
+            phase = TimerPhase.FOCUS,
+            preset = preset,
+            timerMode = TimerMode.POMODORO,
+            totalSeconds = durationSeconds,
+            remainingSeconds = durationSeconds,
+            elapsedSeconds = 0,
+            isRunning = true,
+            isPaused = false,
+        )
+        _timerState.value = runningState
+        persistTimerSnapshot(
+            runningState,
+            TimerRunStatus.RUNNING,
+            endTimeMs = now + durationSeconds * 1_000L,
+            runStartedAtMs = now,
+        )
 
         setFocusGuardActive(true, durationSeconds)
         TimerAlarmWorker.resetCompletionFlag(application)
@@ -295,7 +319,12 @@ class TimerViewModel @Inject constructor(
 
         ContextCompat.startForegroundService(
             application,
-            TimerForegroundService.buildStartIntent(application, durationSeconds, TimerPhase.FOCUS),
+            TimerForegroundService.buildStartIntent(
+                application, durationSeconds, TimerPhase.FOCUS,
+                totalSeconds = durationSeconds,
+                sessionStartedAtMs = sessionStartMs,
+                preset = preset,
+            ),
         )
 
         startSoundAndDnd()
@@ -312,60 +341,108 @@ class TimerViewModel @Inject constructor(
         Log.d(TAG, "start preset=$preset duration=${durationSeconds}s")
     }
 
-    /**
-     * Starts a Flow 45 session using the same fixed timer surface as Pomodoro.
-     */
+    /** Starts the Flow stopwatch; it counts up until the user stops it. */
     fun startFlow() {
-        val preset = IntervalPreset.FLOW
-        val durationSeconds = preset.focusMinutes * 60
-        com.focusfirst.analytics.TokiAnalytics.logSessionStarted(
-            durationMinutes = preset.focusMinutes,
-            soundEnabled = ambientSound.value != AmbientSound.NONE,
-            dndEnabled = dndEnabled.value,
-            hasTask = false
+        val now = System.currentTimeMillis()
+        sessionStartMs = now
+        runStartedAtMs = now
+        val state = _timerState.value.copy(
+            phase = TimerPhase.FOCUS,
+            preset = IntervalPreset.FLOW,
+            timerMode = TimerMode.FLOW,
+            totalSeconds = 0,
+            remainingSeconds = 0,
+            elapsedSeconds = 0,
+            isRunning = true,
+            isPaused = false,
         )
-        sessionStartMs = System.currentTimeMillis()
-
-        _timerState.update { current ->
-            current.copy(
-                phase            = TimerPhase.FOCUS,
-                preset           = preset,
-                timerMode        = TimerMode.FLOW,
-                totalSeconds     = durationSeconds,
-                remainingSeconds = durationSeconds,
-                elapsedSeconds   = 0,
-                isRunning        = true,
-                isPaused         = false,
-            )
-        }
-
-        setFocusGuardActive(true, durationSeconds)
+        _timerState.value = state
+        persistTimerSnapshot(state, TimerRunStatus.RUNNING, endTimeMs = 0L, runStartedAtMs = now)
+        setFocusGuardActive(true, IntervalPreset.FLOW.focusMinutes * 60)
+        cancelAlarm(application)
         TimerAlarmWorker.resetCompletionFlag(application)
-        scheduleAlarm(application, durationSeconds, TimerPhase.FOCUS)
         ContextCompat.startForegroundService(
             application,
-            TimerForegroundService.buildStartIntent(application, durationSeconds, TimerPhase.FOCUS),
+            TimerForegroundService.buildStartFlowIntent(application, 0, sessionStartMs),
         )
-
         startSoundAndDnd()
-        Log.d(TAG, "startFlow duration=${durationSeconds}s")
+        TokiAnalytics.logSessionStarted(
+            durationMinutes = IntervalPreset.FLOW.focusMinutes,
+            soundEnabled = ambientSound.value != AmbientSound.NONE,
+            dndEnabled = dndEnabled.value,
+            hasTask = false,
+        )
+        Log.d(TAG, "startFlow stopwatch")
     }
 
     fun pause() {
+        val state = _timerState.value
+        if (!state.isRunning) return
+        val now = System.currentTimeMillis()
+        val pausedState = if (state.timerMode == TimerMode.FLOW) {
+            state.copy(elapsedSeconds = currentFlowElapsed(now), isRunning = false, isPaused = true)
+        } else {
+            val end = timerPrefs.getLong(BootReceiver.PREF_END_TIME_MS, 0L)
+            val remaining = if (end > 0L) ceilSeconds(end - now) else state.remainingSeconds
+            state.copy(
+                remainingSeconds = remaining.coerceAtMost(state.totalSeconds).coerceAtLeast(0),
+                isRunning = false,
+                isPaused = true,
+            )
+        }
+        _timerState.value = pausedState
+        runStartedAtMs = 0L
+        persistTimerSnapshot(pausedState, TimerRunStatus.PAUSED, endTimeMs = 0L, runStartedAtMs = 0L)
         Log.d(TAG, "pause")
+        setFocusGuardActive(false, 0)
         cancelAlarm(application)
         soundManager.pause()
+        dndManager.disableDnd()
         sendServiceAction(TimerForegroundService.ACTION_PAUSE)
     }
 
     fun resume() {
-        Log.d(TAG, "resume")
         val state = _timerState.value
-        if (state.remainingSeconds > 0) {
+        if (!state.isPaused) return
+        val now = System.currentTimeMillis()
+        if (state.timerMode == TimerMode.FLOW) {
+            val resumed = state.copy(isRunning = true, isPaused = false)
+            _timerState.value = resumed
+            runStartedAtMs = now
+            persistTimerSnapshot(resumed, TimerRunStatus.RUNNING, endTimeMs = 0L, runStartedAtMs = now)
+            ContextCompat.startForegroundService(
+                application,
+                TimerForegroundService.buildStartFlowIntent(application, state.elapsedSeconds, sessionStartMs),
+            )
+        } else {
+            if (state.remainingSeconds <= 0) return
+            val end = now + state.remainingSeconds * 1_000L
+            val resumed = state.copy(isRunning = true, isPaused = false)
+            _timerState.value = resumed
+            runStartedAtMs = now
+            persistTimerSnapshot(resumed, TimerRunStatus.RUNNING, endTimeMs = end, runStartedAtMs = now)
             scheduleAlarm(application, state.remainingSeconds, state.phase)
+            ContextCompat.startForegroundService(
+                application,
+                TimerForegroundService.buildStartIntent(
+                    application,
+                    state.remainingSeconds,
+                    state.phase,
+                    totalSeconds = state.totalSeconds,
+                    sessionStartedAtMs = sessionStartMs,
+                    preset = state.preset,
+                ),
+            )
         }
-        soundManager.resume()
-        sendServiceAction(TimerForegroundService.ACTION_RESUME)
+        val guardRemaining = if (state.timerMode == TimerMode.FLOW) {
+            IntervalPreset.FLOW.focusMinutes * 60
+        } else state.remainingSeconds
+        setFocusGuardActive(state.phase == TimerPhase.FOCUS, guardRemaining)
+        if (state.phase == TimerPhase.FOCUS) startSoundAndDnd() else {
+            soundManager.pause()
+            dndManager.disableDnd()
+        }
+        Log.d(TAG, "resume")
     }
 
     /**
@@ -374,61 +451,64 @@ class TimerViewModel @Inject constructor(
      * Pomodoro: saves a partial session if the user focused for > 30 s.
      * Flow: saves a completed session with actual elapsed time if > 30 s.
      */
-    fun stop() {
-        val state = _timerState.value
+    fun stop() = endSession(saveProgress = true)
 
-        if (state.timerMode == TimerMode.FLOW) {
-            val elapsed = state.elapsedSeconds
+    /** Discards the current session without recording focus time. */
+    fun cancel() = endSession(saveProgress = false)
+
+    private fun endSession(saveProgress: Boolean) {
+        val state = _timerState.value
+        if (state.isIdle) return
+        val elapsed = if (state.timerMode == TimerMode.FLOW) {
+            currentFlowElapsed(System.currentTimeMillis())
+        } else {
+            val end = timerPrefs.getLong(BootReceiver.PREF_END_TIME_MS, 0L)
+            val remaining = if (state.isRunning && end > 0L) {
+                ceilSeconds(end - System.currentTimeMillis()).coerceAtMost(state.totalSeconds)
+            } else state.remainingSeconds
+            (state.totalSeconds - remaining).coerceAtLeast(0)
+        }
+
+        if (saveProgress && state.timerMode == TimerMode.FLOW) {
             if (elapsed > 30) {
-                viewModelScope.launch {
-                    runCatching {
-                        sessionDao.insert(
-                            SessionEntity(
-                                startedAt       = sessionStartMs,
-                                durationSeconds = elapsed,
-                                wasCompleted    = true,
-                                tag             = "Flow",
-                            )
-                        )
-                    }.onSuccess {
-                        _focusSessionCompleted.tryEmit(Unit)
-                        evaluateBadgesAfterSave()
-                        autoSyncIfPro()
-                        TokiAnalytics.logSessionCompleted(
-                            durationMinutes = elapsed / 60,
-                            sessionNumber   = totalCompleted.value,
-                        )
-                        Log.d(TAG, "Flow session saved: ${elapsed}s")
-                    }
-                }
+                saveSession(wasCompleted = true, phase = TimerPhase.FOCUS, durationSeconds = elapsed)
             } else if (elapsed > 0) {
-                // Short flow session treated as abandoned
-                TokiAnalytics.logSessionAbandoned(
-                    durationMinutes = 0,
-                    elapsedMinutes  = elapsed / 60,
-                )
+                TokiAnalytics.logSessionAbandoned(durationMinutes = 0, elapsedMinutes = elapsed / 60)
+                sessionStartMs = 0L
             }
-        } else if (sessionStartMs > 0L) {
-            val elapsedSeconds = ((System.currentTimeMillis() - sessionStartMs) / 1000L).toInt()
-            if (elapsedSeconds > 30) {
-                val totalDuration = state.totalSeconds
-                saveSession(wasCompleted = false, phase = state.phase)
-                TokiAnalytics.logSessionAbandoned(
-                    durationMinutes = totalDuration / 60,
-                    elapsedMinutes  = elapsedSeconds / 60,
-                )
-            }
+        } else if (saveProgress && state.phase == TimerPhase.FOCUS && sessionStartMs > 0L && elapsed > 30) {
+            saveSession(wasCompleted = false, phase = state.phase, durationSeconds = elapsed)
+            TokiAnalytics.logSessionAbandoned(
+                durationMinutes = state.totalSeconds / 60,
+                elapsedMinutes = elapsed / 60,
+            )
+        }
+
+        if (!saveProgress && elapsed > 0) {
+            TokiAnalytics.logSessionAbandoned(
+                durationMinutes = if (state.timerMode == TimerMode.FLOW) 0 else state.totalSeconds / 60,
+                elapsedMinutes = elapsed / 60,
+            )
         }
 
         sessionStartMs = 0L
+        runStartedAtMs = 0L
+        clearRecoveryPrefs()
         setFocusGuardActive(false, 0)
         soundManager.stop()
         dndManager.disableDnd()
         cancelAlarm(application)
         sendServiceAction(TimerForegroundService.ACTION_STOP)
-        _timerState.value = TimerState()
-        Firebase.crashlytics.log("Timer stopped")
-        Log.d(TAG, "stop")
+        val configuredSeconds = focusMinutesFlow.value * 60
+        _timerState.value = TimerState(
+            preset = state.preset,
+            totalSeconds = configuredSeconds,
+            remainingSeconds = configuredSeconds,
+            sessionsCompleted = state.sessionsCompleted,
+            customFocusMinutes = focusMinutesFlow.value,
+        )
+        Firebase.crashlytics.log(if (saveProgress) "Timer stopped" else "Timer cancelled")
+        Log.d(TAG, if (saveProgress) "stop" else "cancel")
     }
 
     /**
@@ -440,7 +520,13 @@ class TimerViewModel @Inject constructor(
 
         // Update the active preset
         _timerState.update { current ->
-            current.copy(preset = preset)
+            if (preset == IntervalPreset.FLOW) current.copy(preset = preset)
+            else current.copy(
+                preset = preset,
+                totalSeconds = preset.focusMinutes * 60,
+                remainingSeconds = preset.focusMinutes * 60,
+                customFocusMinutes = preset.focusMinutes,
+            )
         }
         
         // Update the underlying settings so the slider and timer display sync
@@ -451,6 +537,21 @@ class TimerViewModel @Inject constructor(
         }
         
         Log.d(TAG, "selectPreset $preset")
+    }
+
+    /** Updates the idle Home dial in five-minute steps, without changing a live timer. */
+    fun selectDuration(minutes: Int) {
+        if (minutes !in 5..60 || minutes % 5 != 0) return
+        val state = _timerState.value
+        if (!state.isIdle || state.totalSeconds == minutes * 60) return
+        _timerState.value = state.copy(
+            totalSeconds = minutes * 60,
+            remainingSeconds = minutes * 60,
+            customFocusMinutes = minutes,
+        )
+        viewModelScope.launch {
+            settingsRepository.update(SettingsRepository.KEY_FOCUS_MINUTES, minutes)
+        }
     }
 
     fun updateSound(sound: AmbientSound, volume: Float) {
@@ -476,6 +577,14 @@ class TimerViewModel @Inject constructor(
     // ========================================================================
 
     private fun handleTick(intent: Intent) {
+        if (intent.getBooleanExtra(TimerForegroundService.EXTRA_IS_STOPPED, false)) {
+            sessionStartMs = 0L
+            runStartedAtMs = 0L
+            _timerState.value = TimerState()
+            return
+        }
+        if (_timerState.value.isIdle) return
+
         val isFlowMode = intent.getBooleanExtra(TimerForegroundService.EXTRA_IS_FLOW_MODE, false)
 
         if (isFlowMode) {
@@ -484,8 +593,10 @@ class TimerViewModel @Inject constructor(
             _timerState.update { current ->
                 current.copy(
                     elapsedSeconds = elapsed,
+                    totalSeconds = 0,
+                    remainingSeconds = 0,
                     isRunning      = running,
-                    isPaused       = !running && elapsed > 0,
+                    isPaused       = !running && timerPrefs.getString(BootReceiver.PREF_STATUS, "") == "PAUSED",
                     timerMode      = TimerMode.FLOW,
                     phase          = TimerPhase.FOCUS,
                 )
@@ -527,10 +638,10 @@ class TimerViewModel @Inject constructor(
 
         if (phase == TimerPhase.FOCUS) {
             val completedFlowTimer = _timerState.value.timerMode == TimerMode.FLOW
-            saveSession(wasCompleted = true, phase = phase)
+            val completedDuration = _timerState.value.totalSeconds
+            saveSession(wasCompleted = true, phase = phase, durationSeconds = completedDuration)
             sessionCount++
             _timerState.update { it.copy(sessionsCompleted = it.sessionsCompleted + 1) }
-            _focusSessionCompleted.tryEmit(Unit)
             if (completedFlowTimer) {
                 val flowSeconds = IntervalPreset.FLOW.focusMinutes * 60
                 sessionStartMs = 0L
@@ -588,9 +699,9 @@ class TimerViewModel @Inject constructor(
 
     private fun launchPhase(phase: TimerPhase, durationSeconds: Int) {
         sessionStartMs = System.currentTimeMillis()
+        runStartedAtMs = sessionStartMs
 
-        _timerState.update { current ->
-            current.copy(
+        val runningState = _timerState.value.copy(
                 phase            = phase,
                 timerMode        = TimerMode.POMODORO,
                 totalSeconds     = durationSeconds,
@@ -599,14 +710,23 @@ class TimerViewModel @Inject constructor(
                 isRunning        = true,
                 isPaused         = false,
             )
-        }
+        _timerState.value = runningState
+        val endTime = sessionStartMs + durationSeconds * 1_000L
+        persistTimerSnapshot(runningState, TimerRunStatus.RUNNING, endTime, runStartedAtMs)
 
         TimerAlarmWorker.resetCompletionFlag(application)
         scheduleAlarm(application, durationSeconds, phase)
 
         ContextCompat.startForegroundService(
             application,
-            TimerForegroundService.buildStartIntent(application, durationSeconds, phase),
+            TimerForegroundService.buildStartIntent(
+                application,
+                durationSeconds,
+                phase,
+                totalSeconds = durationSeconds,
+                sessionStartedAtMs = sessionStartMs,
+                preset = runningState.preset,
+            ),
         )
     }
 
@@ -614,12 +734,18 @@ class TimerViewModel @Inject constructor(
     // Private — persistence
     // ========================================================================
 
-    private fun saveSession(wasCompleted: Boolean, phase: TimerPhase) {
+    private fun saveSession(
+        wasCompleted: Boolean,
+        phase: TimerPhase,
+        durationSeconds: Int? = null,
+    ) {
         val startMs = sessionStartMs
         sessionStartMs = 0L
+        runStartedAtMs = 0L
         if (startMs == 0L) return
 
-        val durationSeconds = ((System.currentTimeMillis() - startMs) / 1000L).toInt()
+        val actualDurationSeconds = durationSeconds
+            ?: ((System.currentTimeMillis() - startMs) / 1_000L).toInt()
         val tag = if (_timerState.value.timerMode == TimerMode.FLOW) "Flow" else when (phase) {
             TimerPhase.FOCUS       -> "Focus"
             TimerPhase.SHORT_BREAK -> "Short Break"
@@ -631,25 +757,181 @@ class TimerViewModel @Inject constructor(
                 sessionDao.insert(
                     SessionEntity(
                         startedAt       = startMs,
-                        durationSeconds = durationSeconds,
+                        durationSeconds = actualDurationSeconds,
                         wasCompleted    = wasCompleted,
                         tag             = tag,
                     )
                 )
             }.onFailure { Log.e(TAG, "Failed to save session", it) }
              .onSuccess {
-                 Log.d(TAG, "Saved session tag=$tag completed=$wasCompleted duration=${durationSeconds}s")
+                 Log.d(TAG, "Saved session tag=$tag completed=$wasCompleted duration=${actualDurationSeconds}s")
                  if (wasCompleted && phase == TimerPhase.FOCUS) {
+                     _focusSessionCompleted.tryEmit(Unit)
                      evaluateBadgesAfterSave()
                      autoSyncIfPro()
                      TokiAnalytics.logSessionCompleted(
-                         durationMinutes = durationSeconds / 60,
+                         durationMinutes = actualDurationSeconds / 60,
                          sessionNumber   = totalCompleted.value,
                      )
                  }
              }
         }
     }
+
+    private fun persistTimerSnapshot(
+        state: TimerState,
+        status: TimerRunStatus,
+        endTimeMs: Long,
+        runStartedAtMs: Long,
+    ) {
+        timerPrefs.edit()
+            .putBoolean(BootReceiver.PREF_SESSION_ACTIVE, true)
+            .putBoolean(BootReceiver.PREF_WAS_RUNNING, status == TimerRunStatus.RUNNING)
+            .putString(BootReceiver.PREF_STATUS, status.name)
+            .putLong(BootReceiver.PREF_END_TIME_MS, endTimeMs)
+            .putString(BootReceiver.PREF_PHASE, state.phase.name)
+            .putString(BootReceiver.PREF_MODE, state.timerMode.name)
+            .putString(BootReceiver.PREF_PRESET, state.preset.name)
+            .putInt(BootReceiver.PREF_TOTAL_SECONDS, state.totalSeconds)
+            .putInt(BootReceiver.PREF_REMAINING_SECONDS, state.remainingSeconds)
+            .putInt(BootReceiver.PREF_ELAPSED_SECONDS, state.elapsedSeconds)
+            .putLong(BootReceiver.PREF_SESSION_STARTED_AT_MS, sessionStartMs)
+            .putLong(BootReceiver.PREF_RUN_STARTED_AT_MS, runStartedAtMs)
+            .putInt(BootReceiver.PREF_SESSIONS_COMPLETED, state.sessionsCompleted)
+            .putInt(BootReceiver.PREF_SESSIONS_IN_CYCLE, sessionCount)
+            .commit()
+    }
+
+    private fun restorePersistedTimer() {
+        if (!timerPrefs.getBoolean(BootReceiver.PREF_SESSION_ACTIVE, false)) {
+            if (timerPrefs.getBoolean(BootReceiver.PREF_WAS_RUNNING, false)) clearStaleTimer()
+            return
+        }
+
+        val mode = timerPrefs.getString(BootReceiver.PREF_MODE, null)
+            ?.let { runCatching { TimerMode.valueOf(it) }.getOrNull() }
+        val phase = timerPrefs.getString(BootReceiver.PREF_PHASE, null)
+            ?.let { runCatching { TimerPhase.valueOf(it) }.getOrNull() }
+        val preset = timerPrefs.getString(BootReceiver.PREF_PRESET, null)
+            ?.let { runCatching { IntervalPreset.valueOf(it) }.getOrNull() }
+        val status = timerPrefs.getString(BootReceiver.PREF_STATUS, null)
+            ?.let { runCatching { TimerRunStatus.valueOf(it) }.getOrNull() }
+        if (mode == null || phase == null || preset == null || status == null) {
+            Log.w(TAG, "Discarding malformed saved timer snapshot")
+            clearStaleTimer()
+            return
+        }
+
+        val snapshot = TimerRecoverySnapshot(
+            mode = mode,
+            phase = phase,
+            preset = preset,
+            status = status,
+            totalSeconds = timerPrefs.getInt(BootReceiver.PREF_TOTAL_SECONDS, 0),
+            remainingSeconds = timerPrefs.getInt(BootReceiver.PREF_REMAINING_SECONDS, 0),
+            elapsedSeconds = timerPrefs.getInt(BootReceiver.PREF_ELAPSED_SECONDS, 0),
+            sessionStartedAtMs = timerPrefs.getLong(BootReceiver.PREF_SESSION_STARTED_AT_MS, 0L),
+            runStartedAtMs = timerPrefs.getLong(BootReceiver.PREF_RUN_STARTED_AT_MS, 0L),
+            endTimeMs = timerPrefs.getLong(BootReceiver.PREF_END_TIME_MS, 0L),
+            sessionsCompleted = timerPrefs.getInt(BootReceiver.PREF_SESSIONS_COMPLETED, 0),
+            sessionsInCycle = timerPrefs.getInt(BootReceiver.PREF_SESSIONS_IN_CYCLE, 0),
+        )
+        when (val decision = TimerRecoveryPolicy.recover(snapshot, System.currentTimeMillis())) {
+            is TimerRecoveryDecision.Running -> {
+                sessionStartMs = decision.sessionStartedAtMs
+                sessionCount = decision.sessionsInCycle
+                val now = System.currentTimeMillis()
+                runStartedAtMs = now
+                _timerState.value = decision.timerState
+                persistTimerSnapshot(
+                    decision.timerState,
+                    TimerRunStatus.RUNNING,
+                    endTimeMs = if (mode == TimerMode.FLOW) 0L else snapshot.endTimeMs,
+                    runStartedAtMs = now,
+                )
+                if (mode == TimerMode.FLOW) {
+                    cancelAlarm(application)
+                    ContextCompat.startForegroundService(
+                        application,
+                        TimerForegroundService.buildStartFlowIntent(
+                            application,
+                            decision.timerState.elapsedSeconds,
+                            sessionStartMs,
+                        ),
+                    )
+                } else {
+                    scheduleAlarm(application, decision.timerState.remainingSeconds, phase)
+                    ContextCompat.startForegroundService(
+                        application,
+                        TimerForegroundService.buildStartIntent(
+                            application,
+                            decision.timerState.remainingSeconds,
+                            phase,
+                            totalSeconds = decision.timerState.totalSeconds,
+                            sessionStartedAtMs = sessionStartMs,
+                            preset = preset,
+                            endTimeMs = snapshot.endTimeMs,
+                        ),
+                    )
+                }
+                setFocusGuardActive(phase == TimerPhase.FOCUS, decision.timerState.remainingSeconds)
+                if (phase == TimerPhase.FOCUS) startSoundAndDnd()
+            }
+            is TimerRecoveryDecision.Paused -> {
+                sessionStartMs = decision.sessionStartedAtMs
+                sessionCount = decision.sessionsInCycle
+                runStartedAtMs = 0L
+                _timerState.value = decision.timerState
+                persistTimerSnapshot(decision.timerState, TimerRunStatus.PAUSED, 0L, 0L)
+                cancelAlarm(application)
+                setFocusGuardActive(false, 0)
+                soundManager.stop()
+                dndManager.disableDnd()
+            }
+            TimerRecoveryDecision.Expired, TimerRecoveryDecision.Invalid -> {
+                Log.i(TAG, "Clearing expired or invalid saved timer")
+                clearStaleTimer()
+            }
+        }
+    }
+
+    private fun clearStaleTimer() {
+        clearRecoveryPrefs()
+        cancelAlarm(application)
+        setFocusGuardActive(false, 0)
+        soundManager.stop()
+        dndManager.disableDnd()
+    }
+
+    private fun clearRecoveryPrefs() {
+        timerPrefs.edit()
+            .putBoolean(BootReceiver.PREF_SESSION_ACTIVE, false)
+            .putBoolean(BootReceiver.PREF_WAS_RUNNING, false)
+            .putString(BootReceiver.PREF_STATUS, "IDLE")
+            .putLong(BootReceiver.PREF_END_TIME_MS, 0L)
+            .putInt(BootReceiver.PREF_TOTAL_SECONDS, 0)
+            .putInt(BootReceiver.PREF_REMAINING_SECONDS, 0)
+            .putInt(BootReceiver.PREF_ELAPSED_SECONDS, 0)
+            .putLong(BootReceiver.PREF_SESSION_STARTED_AT_MS, 0L)
+            .putLong(BootReceiver.PREF_RUN_STARTED_AT_MS, 0L)
+            .putInt(BootReceiver.PREF_SESSIONS_COMPLETED, 0)
+            .putInt(BootReceiver.PREF_SESSIONS_IN_CYCLE, 0)
+            .commit()
+    }
+
+    private fun currentFlowElapsed(nowMs: Long): Int {
+        val base = timerPrefs.getInt(BootReceiver.PREF_ELAPSED_SECONDS, _timerState.value.elapsedSeconds)
+            .coerceAtLeast(0)
+        val start = timerPrefs.getLong(BootReceiver.PREF_RUN_STARTED_AT_MS, runStartedAtMs)
+        val extra = if (timerPrefs.getString(BootReceiver.PREF_STATUS, "") == TimerRunStatus.RUNNING.name &&
+            start in 1L..nowMs
+        ) ((nowMs - start) / 1_000L) else 0L
+        return (base.toLong() + extra).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    }
+
+    private fun ceilSeconds(milliseconds: Long): Int =
+        if (milliseconds <= 0L) 0 else ((milliseconds + 999L) / 1_000L)
+            .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
     // ========================================================================
     // Private — helpers
@@ -715,10 +997,15 @@ class TimerViewModel @Inject constructor(
      * Start a focus session from a deep link or home-screen shortcut.
      * Selects the closest matching preset, or uses a custom duration.
      */
-    fun startFromDeepLink(durationMinutes: Int, taskName: String?) {
-        // If the timer is already running, do nothing (avoid interrupt)
+    fun startFromDeepLink(durationMinutes: Int) {
+        if (!DeepLinkDuration.isSupported(durationMinutes)) {
+            Log.w(TAG, "Ignoring unsupported deep-link duration: ${durationMinutes}m")
+            return
+        }
+
+        // A running or paused session owns its current task association.
         val state = _timerState.value
-        if (state.isRunning) return
+        if (state.isRunning || state.isPaused) return
 
         // Find the closest built-in preset or fall back to the default 25-min one
         val matchingPreset = IntervalPreset.entries.firstOrNull {
@@ -726,37 +1013,49 @@ class TimerViewModel @Inject constructor(
         }
 
         if (matchingPreset != null) {
-            start(matchingPreset)
+            start(matchingPreset, durationMinutesOverride = durationMinutes)
         } else {
             // Custom duration — start with the default preset but override the duration
             val durationSeconds = durationMinutes * 60
-            sessionStartMs = System.currentTimeMillis()
+            val now = System.currentTimeMillis()
+            sessionStartMs = now
+            runStartedAtMs = now
             val preset = _timerState.value.preset
 
-            _timerState.update { current ->
-                current.copy(
-                    phase            = TimerPhase.FOCUS,
-                    preset           = preset,
-                    timerMode        = TimerMode.POMODORO,
-                    totalSeconds     = durationSeconds,
-                    remainingSeconds = durationSeconds,
-                    elapsedSeconds   = 0,
-                    isRunning        = true,
-                    isPaused         = false,
-                )
-            }
+            val runningState = _timerState.value.copy(
+                phase = TimerPhase.FOCUS,
+                preset = preset,
+                timerMode = TimerMode.POMODORO,
+                totalSeconds = durationSeconds,
+                remainingSeconds = durationSeconds,
+                elapsedSeconds = 0,
+                isRunning = true,
+                isPaused = false,
+            )
+            _timerState.value = runningState
+            persistTimerSnapshot(
+                runningState,
+                TimerRunStatus.RUNNING,
+                endTimeMs = now + durationSeconds * 1_000L,
+                runStartedAtMs = now,
+            )
 
             setFocusGuardActive(true, durationSeconds)
             TimerAlarmWorker.resetCompletionFlag(application)
             scheduleAlarm(application, durationSeconds, TimerPhase.FOCUS)
             ContextCompat.startForegroundService(
                 application,
-                TimerForegroundService.buildStartIntent(application, durationSeconds, TimerPhase.FOCUS),
+                TimerForegroundService.buildStartIntent(
+                    application, durationSeconds, TimerPhase.FOCUS,
+                    totalSeconds = durationSeconds,
+                    sessionStartedAtMs = sessionStartMs,
+                    preset = preset,
+                ),
             )
             startSoundAndDnd()
         }
 
-        Log.d(TAG, "startFromDeepLink duration=${durationMinutes}m task=$taskName")
+        Log.d(TAG, "startFromDeepLink duration=${durationMinutes}m")
     }
 
     private fun sendServiceAction(action: String) {

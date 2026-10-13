@@ -1,0 +1,3 @@
+interface:
+  display_name: "Semantic Color System"
+  short_description: "Create and enforce primitive and semantic design tokens for Compose light/dark themes, states a"

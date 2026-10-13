@@ -51,7 +51,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
@@ -60,6 +59,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.focusfirst.data.model.AppInfo
+import com.focusfirst.ui.theme.FocusColors
+import com.focusfirst.ui.theme.TokiTypography
 import com.focusfirst.viewmodel.FocusGuardViewModel
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -125,27 +126,25 @@ fun FocusGuardScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text       = "Focus Guard",
-                            fontSize   = 22.sp,
-                            fontWeight = FontWeight.Bold,
+                            style      = TokiTypography.pageTitle,
                             color      = Color.White,
                         )
                         Spacer(Modifier.width(8.dp))
                         Surface(
-                            color = Color(0xFF6C63FF).copy(alpha = 0.2f),
+                            color = FocusColors.CommercialBlue.copy(alpha = 0.2f),
                             shape = RoundedCornerShape(4.dp),
                         ) {
                             Text(
                                 text     = "PRO",
-                                fontSize = 9.sp,
-                                color    = Color(0xFF6C63FF),
+                                style    = TokiTypography.sectionLabel,
+                                color    = FocusColors.CommercialBlue,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                fontWeight = FontWeight.Bold,
                             )
                         }
                     }
                     Text(
                         text     = "Block distracting apps during focus sessions",
-                        fontSize = 12.sp,
+                        style    = TokiTypography.supporting,
                         color    = Color.White.copy(alpha = 0.45f),
                     )
                 }
@@ -181,9 +180,9 @@ fun FocusGuardScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp),
-                    color  = Color(0xFFFFA500).copy(alpha = 0.08f),
+                    color  = Color.White.copy(alpha = 0.08f),
                     shape  = RoundedCornerShape(10.dp),
-                    border = BorderStroke(0.5.dp, Color(0xFFFFA500).copy(alpha = 0.3f)),
+                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f)),
                 ) {
                     Row(
                         modifier          = Modifier.padding(12.dp),
@@ -192,14 +191,14 @@ fun FocusGuardScreen(
                         Icon(
                             imageVector        = Icons.Outlined.Warning,
                             contentDescription = null,
-                            tint               = Color(0xFFFFA500),
+                            tint               = Color.White,
                             modifier           = Modifier.size(16.dp),
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text     = "Usage Access permission must be granted for Focus Guard to work.",
-                            fontSize = 12.sp,
-                            color    = Color(0xFFFFA500).copy(alpha = 0.85f),
+                            style    = TokiTypography.supporting,
+                            color    = Color.White.copy(alpha = 0.85f),
                         )
                     }
                 }
@@ -246,8 +245,7 @@ fun FocusGuardScreen(
             ) {
                 Text(
                     text       = "Installed Apps",
-                    fontSize   = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    style      = TokiTypography.sectionLabel,
                     color      = Color.White.copy(alpha = 0.5f),
                     letterSpacing = androidx.compose.ui.unit.TextUnit(0.12f,
                         androidx.compose.ui.unit.TextUnitType.Em),
@@ -255,8 +253,8 @@ fun FocusGuardScreen(
                 if (blockedApps.isNotEmpty()) {
                     Text(
                         text      = "${blockedApps.size} blocked",
-                        fontSize  = 12.sp,
-                        color     = Color(0xFF6C63FF).copy(alpha = 0.8f),
+                        style     = TokiTypography.supporting,
+                        color     = Color.White.copy(alpha = 0.8f),
                         modifier  = Modifier
                             .clip(RoundedCornerShape(4.dp))
                             .clickable { viewModel.clearAll() }
@@ -273,7 +271,7 @@ fun FocusGuardScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     CircularProgressIndicator(
-                        color = Color(0xFF6C63FF),
+                        color = Color.White,
                         modifier = Modifier.size(28.dp),
                         strokeWidth = 2.dp,
                     )
@@ -301,17 +299,15 @@ fun FocusGuardScreen(
                 Column(modifier = Modifier.padding(14.dp)) {
                     Text(
                         text       = "📅  Schedule",
-                        fontSize   = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        style      = TokiTypography.cardTitle,
                         color      = Color.White.copy(alpha = 0.7f),
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
                         text     = "Apps are only blocked during active FOCUS phases. " +
                                 "Breaks are unrestricted.",
-                        fontSize = 12.sp,
+                        style    = TokiTypography.supporting,
                         color    = Color.White.copy(alpha = 0.45f),
-                        lineHeight = 18.sp,
                     )
                 }
             }
@@ -329,8 +325,7 @@ fun FocusGuardScreen(
 private fun SectionLabel(text: String) {
     Text(
         text          = text.uppercase(),
-        fontSize      = 11.sp,
-        fontWeight    = FontWeight.SemiBold,
+        style         = TokiTypography.sectionLabel,
         color         = Color.White.copy(alpha = 0.5f),
         letterSpacing = androidx.compose.ui.unit.TextUnit(0.12f,
             androidx.compose.ui.unit.TextUnitType.Em),
@@ -361,14 +356,14 @@ private fun PermissionCard(
             Surface(
                 modifier = Modifier.size(40.dp),
                 shape    = RoundedCornerShape(10.dp),
-                color    = if (granted) Color(0xFF1A9E5F).copy(alpha = 0.15f)
+                color    = if (granted) Color.White.copy(alpha = 0.15f)
                            else Color.White.copy(alpha = 0.06f),
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector        = icon,
                         contentDescription = null,
-                        tint               = if (granted) Color(0xFF1A9E5F) else Color.White.copy(alpha = 0.5f),
+                        tint               = if (granted) Color.White else Color.White.copy(alpha = 0.5f),
                         modifier           = Modifier.size(20.dp),
                     )
                 }
@@ -377,26 +372,25 @@ private fun PermissionCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text       = title,
-                    fontSize   = 14.sp,
-                    fontWeight = FontWeight.Medium,
+                    style      = TokiTypography.rowTitle,
                     color      = Color.White,
                 )
                 Text(
                     text     = description,
-                    fontSize = 12.sp,
+                    style    = TokiTypography.supporting,
                     color    = Color.White.copy(alpha = 0.45f),
                 )
             }
             Spacer(Modifier.width(8.dp))
             if (granted) {
                 Surface(
-                    color = Color(0xFF1A9E5F).copy(alpha = 0.15f),
+                    color = Color.White.copy(alpha = 0.15f),
                     shape = CircleShape,
                 ) {
                     Icon(
                         imageVector        = Icons.Outlined.Check,
                         contentDescription = "Granted",
-                        tint               = Color(0xFF1A9E5F),
+                        tint               = Color.White,
                         modifier           = Modifier
                             .padding(4.dp)
                             .size(16.dp),
@@ -406,15 +400,15 @@ private fun PermissionCard(
                 Button(
                     onClick = onGrant,
                     colors  = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF6C63FF),
-                        contentColor   = Color.White,
+                        containerColor = Color.White,
+                        contentColor   = Color(0xFF141414),
                     ),
                     shape  = RoundedCornerShape(8.dp),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
                         horizontal = 12.dp, vertical = 6.dp,
                     ),
                 ) {
-                    Text(text = "Grant", fontSize = 12.sp)
+                    Text(text = "Grant", style = TokiTypography.button)
                 }
             }
         }
@@ -437,9 +431,8 @@ private fun PresetChip(emoji: String, label: String, onClick: () -> Unit) {
             Spacer(Modifier.height(4.dp))
             Text(
                 text       = label,
-                fontSize   = 11.sp,
+                style      = TokiTypography.action,
                 color      = Color.White.copy(alpha = 0.7f),
-                fontWeight = FontWeight.Medium,
             )
         }
     }
@@ -495,14 +488,13 @@ private fun AppBlockRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text       = app.appName,
-                fontSize   = 14.sp,
-                fontWeight = FontWeight.Medium,
+                style      = TokiTypography.rowTitle,
                 color      = Color.White,
                 maxLines   = 1,
             )
             Text(
                 text     = app.packageName,
-                fontSize = 11.sp,
+                style    = TokiTypography.supporting,
                 color    = Color.White.copy(alpha = 0.5f),
                 maxLines = 1,
             )
@@ -512,8 +504,8 @@ private fun AppBlockRow(
             checked         = isBlocked,
             onCheckedChange = { onToggle() },
             colors          = SwitchDefaults.colors(
-                checkedThumbColor      = Color.White,
-                checkedTrackColor      = Color(0xFF6C63FF),
+                checkedThumbColor      = Color(0xFF141414),
+                checkedTrackColor      = Color.White,
                 uncheckedThumbColor    = Color.White.copy(alpha = 0.5f),
                 uncheckedTrackColor    = Color.White.copy(alpha = 0.12f),
                 uncheckedBorderColor   = Color.Transparent,

@@ -40,6 +40,34 @@ class TimerUiTextTest {
         assertEquals("Flow 45", text.phase)
         assertEquals("Start", text.primaryAction)
         assertEquals("Ready when you are", text.cycle)
-        assertEquals("Flow 45 ready, 45 minutes remaining", text.accessibilitySummary)
+        assertEquals("Flow 45 ready to start", text.accessibilitySummary)
+    }
+
+    @Test
+    fun idleTimerAfterStopDescribesConfiguredDurationInsteadOfRemainingTime() {
+        val stopped = TimerState(
+            totalSeconds = 25 * 60,
+            remainingSeconds = 0,
+        )
+
+        val text = TimerUiText.from(stopped, selectedMode = TimerMode.POMODORO)
+
+        assertEquals("Focus ready, 25 minutes set", text.accessibilitySummary)
+    }
+
+    @Test
+    fun runningFlowAnnouncesElapsedTime() {
+        val state = TimerState(
+            timerMode = TimerMode.FLOW,
+            preset = IntervalPreset.FLOW,
+            totalSeconds = 0,
+            remainingSeconds = 0,
+            elapsedSeconds = 100,
+            isRunning = true,
+        )
+
+        val text = TimerUiText.from(state, selectedMode = TimerMode.FLOW)
+
+        assertEquals("Flow 45 running, 1 minute 40 seconds elapsed", text.accessibilitySummary)
     }
 }

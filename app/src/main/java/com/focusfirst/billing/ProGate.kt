@@ -19,11 +19,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.focusfirst.ui.theme.TokiTypography
 
 // ─── ProGate ────────────────────────────────────────────────────────────────────
 
@@ -84,8 +84,7 @@ private fun LockOverlayContent(
         )
         Text(
             text       = "Pro feature",
-            fontSize   = 16.sp,
-            fontWeight = FontWeight.SemiBold,
+            style      = TokiTypography.cardTitle,
             color      = Color.White,
         )
         Spacer(Modifier.height(16.dp))
@@ -99,8 +98,7 @@ private fun LockOverlayContent(
         ) {
             Text(
                 text       = proPrice?.let { "Unlock $it / month" } ?: "Unlock Pro",
-                fontSize   = 14.sp,
-                fontWeight = FontWeight.SemiBold,
+                style      = TokiTypography.button,
                 color      = Color.Black,
             )
         }
@@ -133,8 +131,7 @@ fun ProBadge() {
     ) {
         Text(
             text          = "PRO",
-            fontSize      = 9.sp,
-            fontWeight    = FontWeight.Bold,
+            style         = TokiTypography.sectionLabel,
             letterSpacing = 0.8.sp,
             color         = Color(0xFFFFC107),
         )

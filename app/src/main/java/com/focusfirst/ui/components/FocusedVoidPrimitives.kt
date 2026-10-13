@@ -28,17 +28,12 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.focusfirst.ui.theme.TokiTypography
 
 object FocusedVoid {
-    val FocusRed = Color(0xFFE21B16)
-    val ShortBreak = Color(0xFF8FAAA0)
-    val LongBreak = Color(0xFF8C9EBC)
-    val Success = Color(0xFF65A882)
-    val Warning = Color(0xFFE1A95F)
     val Radius = 12.dp
     val Pill = 999.dp
 }
@@ -109,7 +104,7 @@ fun TokiIconButton(
     val tint = if (active) cs.primary else cs.onSurfaceVariant
     Box(
         modifier = modifier
-            .size(52.dp)
+            .size(48.dp)
             .clip(CircleShape)
             .background(if (active) cs.primary.copy(alpha = 0.1f) else cs.surfaceContainerLow)
             .border(1.dp, if (active) cs.primary else cs.outline, CircleShape)
@@ -124,7 +119,7 @@ fun TokiIconButton(
             imageVector = icon,
             contentDescription = null,
             tint = tint,
-            modifier = Modifier.size(24.dp),
+            modifier = Modifier.size(22.dp),
         )
     }
 }
@@ -135,9 +130,7 @@ fun TokiMetric(label: String, value: String, modifier: Modifier = Modifier) {
         Text(
             text = value,
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 18.sp,
-            lineHeight = 22.sp,
-            fontWeight = FontWeight.SemiBold,
+            style = TokiTypography.heroMetric,
             maxLines = 1,
         )
         Text(
@@ -169,8 +162,7 @@ fun TokiListRow(
             Text(
                 text = title,
                 color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
+                style = TokiTypography.bodyTitle,
             )
             Text(
                 text = subtitle,

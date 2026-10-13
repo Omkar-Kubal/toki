@@ -1,0 +1,3 @@
+interface:
+  display_name: "UI Component Auditor"
+  short_description: "Audit every Jetpack Compose screen and component for rendering, accessibility, responsiveness, "

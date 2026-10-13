@@ -23,13 +23,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.focusfirst.data.model.BreakActivity
 import com.focusfirst.data.model.LONG_BREAK_ACTIVITIES
 import com.focusfirst.data.model.SHORT_BREAK_ACTIVITIES
+import com.focusfirst.ui.theme.TokiTypography
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,13 +73,12 @@ fun BreakSuggestionSheet(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text       = if (isLongBreak) "Long break" else "Short break",
-                        fontSize   = 20.sp,
-                        fontWeight = FontWeight.Bold,
+                        style      = TokiTypography.cardTitle,
                         color      = Color.White,
                     )
                     Text(
                         text     = "${breakDurationSeconds / 60} min break",
-                        fontSize = 13.sp,
+                        style    = TokiTypography.supporting,
                         color    = Color.White.copy(alpha = 0.5f),
                     )
                 }
@@ -87,7 +86,7 @@ fun BreakSuggestionSheet(
                     Text(
                         text     = "Skip",
                         color    = Color.White.copy(alpha = 0.5f),
-                        fontSize = 13.sp,
+                        style    = TokiTypography.action,
                     )
                 }
             }
@@ -96,7 +95,7 @@ fun BreakSuggestionSheet(
 
             Text(
                 text          = "REST IDEAS",
-                fontSize      = 10.sp,
+                style         = TokiTypography.sectionLabel,
                 color         = Color.White.copy(alpha = 0.5f),
                 letterSpacing = 1.5.sp,
             )
@@ -113,7 +112,7 @@ fun BreakSuggestionSheet(
 
             Text(
                 text      = "Step away. Your work will still be there.",
-                fontSize  = 12.sp,
+                style     = TokiTypography.supporting,
                 color     = Color.White.copy(alpha = 0.5f),
                 textAlign = TextAlign.Center,
                 modifier  = Modifier.fillMaxWidth(),
@@ -150,13 +149,12 @@ private fun BreakActivityCard(activity: BreakActivity) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text       = activity.title,
-                    fontSize   = 14.sp,
-                    fontWeight = FontWeight.Medium,
+                    style      = TokiTypography.rowTitle,
                     color      = Color.White,
                 )
                 Text(
                     text     = activity.description,
-                    fontSize = 12.sp,
+                    style    = TokiTypography.supporting,
                     color    = Color.White.copy(alpha = 0.5f),
                 )
             }
@@ -171,7 +169,7 @@ private fun BreakActivityCard(activity: BreakActivity) {
                 Text(
                     text     = formatActivityDuration(activity.durationSeconds),
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    fontSize = 11.sp,
+                    style    = TokiTypography.chartLabel,
                     color    = Color.White.copy(alpha = 0.5f),
                 )
             }
