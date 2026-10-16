@@ -3,7 +3,6 @@
     <string name="support_email">omkarkubal@protonmail.com</string>
     <string name="privacy_policy_url">https://sites.google.com/view/toki-privacy-and-policy</string>
     <string name="terms_url">https://tokifocus.blogspot.com/terms</string>
-    <string name="widget_description">Toki focus timer widget</string>
 
     <!-- Focus Guard accessibility service description (shown in system Accessibility settings) -->
     <string name="focus_guard_description">Toki Focus Guard blocks distracting apps during your focus sessions to help you stay on task.</string>

@@ -26,10 +26,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.focusfirst.data.model.AmbientSound
+import com.focusfirst.ui.theme.TokiTypography
 
 private val SheetBackground = Color(0xFF0D0D0D)
 
@@ -57,8 +57,7 @@ fun SoundSelectorSheet(
         ) {
             Text(
                 text       = "Ambient Sound",
-                fontSize   = 18.sp,
-                fontWeight = FontWeight.Bold,
+                style      = TokiTypography.cardTitle,
                 color      = Color.White,
             )
 
@@ -66,7 +65,7 @@ fun SoundSelectorSheet(
 
             Text(
                 text     = "Plays during focus, pauses on break",
-                fontSize = 13.sp,
+                style    = TokiTypography.supporting,
                 color    = Color.White.copy(alpha = 0.5f),
             )
 
@@ -104,7 +103,7 @@ fun SoundSelectorSheet(
 
                 Text(
                     text     = "Volume",
-                    fontSize = 13.sp,
+                    style    = TokiTypography.sectionLabel,
                     color    = Color.White.copy(alpha = 0.6f),
                 )
 
@@ -157,8 +156,7 @@ private fun SoundCard(
             Spacer(Modifier.width(8.dp))
             Text(
                 text       = sound.displayName,
-                fontSize   = 13.sp,
-                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                style      = TokiTypography.rowTitle,
                 color      = if (isLocked) Color.White.copy(alpha = 0.5f) else Color.White,
                 modifier   = Modifier.weight(1f),
             )

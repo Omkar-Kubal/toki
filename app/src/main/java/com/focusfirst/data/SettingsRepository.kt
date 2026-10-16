@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.focusfirst.data.model.AmbientSound
+import com.focusfirst.util.ThemeModePolicy
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -72,7 +73,9 @@ class SettingsRepository(
 
     val vibrate: Flow<Boolean> = dataStore.data.map { it[KEY_VIBRATE] ?: true }
 
-    val themeMode: Flow<String> = dataStore.data.map { it[KEY_THEME_MODE] ?: "System" }
+    val themeMode: Flow<String> = dataStore.data.map {
+        ThemeModePolicy.normalize(it[KEY_THEME_MODE])
+    }
 
     val amoledMode: Flow<Boolean> = dataStore.data.map { it[KEY_AMOLED_MODE] ?: false }
 

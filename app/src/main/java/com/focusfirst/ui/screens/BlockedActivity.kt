@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.preference.PreferenceManager
 import com.focusfirst.data.repository.FocusGuardRepository
+import com.focusfirst.ui.theme.TokiTypography
 import com.focusfirst.ui.theme.FocusFirstTheme
 import kotlinx.coroutines.delay
 
@@ -152,7 +153,7 @@ private fun BlockedScreen(
             .fillMaxSize()
             .background(
                 Brush.radialGradient(
-                    colors = listOf(Color(0xFF0A0A12), Color(0xFF000000)),
+                    colors = listOf(Color(0xFF141414), Color(0xFF000000)),
                 )
             ),
         contentAlignment = Alignment.Center,
@@ -169,7 +170,7 @@ private fun BlockedScreen(
                     .size(96.dp)
                     .scale(scale),
                 shape     = CircleShape,
-                color     = Color(0xFF1A1A2E),
+                color     = Color(0xFF262626),
                 tonalElevation = 0.dp,
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -182,8 +183,7 @@ private fun BlockedScreen(
             // ── Headline ──────────────────────────────────────────────────
             Text(
                 text       = "Focus session in progress",
-                fontSize   = 22.sp,
-                fontWeight = FontWeight.Bold,
+                style      = TokiTypography.pageTitle,
                 color      = Color.White,
                 textAlign  = TextAlign.Center,
             )
@@ -193,7 +193,7 @@ private fun BlockedScreen(
             // ── Blocked app name ──────────────────────────────────────────
             Text(
                 text      = "$blockedAppName is blocked",
-                fontSize  = 14.sp,
+                style     = TokiTypography.rowTitle,
                 color     = Color.White.copy(alpha = 0.55f),
                 textAlign = TextAlign.Center,
             )
@@ -204,7 +204,7 @@ private fun BlockedScreen(
             if (remaining > 0) {
                 Surface(
                     shape = RoundedCornerShape(16.dp),
-                    color = Color(0xFF1A1A2E),
+                    color = Color(0xFF262626),
                 ) {
                     Column(
                         modifier            = Modifier.padding(horizontal = 28.dp, vertical = 16.dp),
@@ -220,14 +220,15 @@ private fun BlockedScreen(
                         }
                         Text(
                             text       = timeStr,
-                            fontSize   = 36.sp,
-                            fontWeight = FontWeight.Bold,
-                            color      = Color(0xFF6C63FF),
+                            style      = TokiTypography.heroMetric.copy(
+                                fontWeight = FontWeight.Bold,
+                            ),
+                            color      = Color.White,
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
                             text     = "remaining",
-                            fontSize = 12.sp,
+                            style    = TokiTypography.supporting,
                             color    = Color.White.copy(alpha = 0.4f),
                         )
                     }
@@ -247,7 +248,7 @@ private fun BlockedScreen(
             ) {
                 Text(
                     text       = "⚠  End session & return",
-                    fontSize   = 13.sp,
+                    style      = TokiTypography.button,
                     modifier   = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
             }
@@ -256,7 +257,7 @@ private fun BlockedScreen(
 
             Text(
                 text      = "Stay focused — you're almost there!",
-                fontSize  = 12.sp,
+                style     = TokiTypography.supporting,
                 color     = Color.White.copy(alpha = 0.25f),
                 textAlign = TextAlign.Center,
             )

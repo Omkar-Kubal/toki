@@ -49,7 +49,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Deep link: toki://timer/{start|stop|pause|resume} -->
+            <!-- Deep link: toki://timer/{start|stop|cancel|pause|resume} -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -86,18 +86,6 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
-        </receiver>
-
-        <!-- ── App Widget Receiver ───────────────────────────────────── -->
-        <receiver
-            android:name=".widget.FocusFirstWidgetReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/focus_first_widget_info" />
         </receiver>
 
         <!-- ── WorkManager: disable default initializer ──────────────── -->

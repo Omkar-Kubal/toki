@@ -44,27 +44,26 @@ data class TimerUiText(
                 state.isRunning -> "Rest now, focus next"
                 else -> "Start a focus session"
             }
-            val remaining = if (state.isIdle && selectedMode == TimerMode.FLOW) {
-                45 * 60
-            } else {
-                if (state.timerMode == TimerMode.FLOW && state.totalSeconds == 0) {
-                    state.elapsedSeconds
-                } else {
-                    state.remainingSeconds
-                }
-            }
             val stateLabel = when {
                 state.isRunning -> "running"
                 state.isPaused -> "paused"
                 else -> "ready"
             }
             val summary = buildString {
-                append("$phase $stateLabel, ")
-                append(formatAccessibilityDuration(remaining))
-                if (state.isRunning || state.isPaused) {
-                    append(" remaining")
+                if (state.isIdle) {
+                    append(if (visualMode == TimerMode.FLOW) "Flow 45 ready to start" else "$phase ready")
+                    if (visualMode != TimerMode.FLOW && state.totalSeconds > 0) {
+                        append(", ${formatAccessibilityDuration(state.totalSeconds)} set")
+                    }
                 } else {
-                    append(" remaining")
+                    append("$phase $stateLabel, ")
+                    val duration = if (visualMode == TimerMode.FLOW) {
+                        state.elapsedSeconds
+                    } else {
+                        state.remainingSeconds
+                    }
+                    append(formatAccessibilityDuration(duration))
+                    append(if (visualMode == TimerMode.FLOW) " elapsed" else " remaining")
                 }
                 if (!state.isIdle && visualMode == TimerMode.POMODORO && state.phase == TimerPhase.FOCUS) {
                     append(", session $currentCycle of $sessionsBeforeLongBreak before long break")
@@ -82,10 +81,12 @@ data class TimerUiText(
         private fun formatAccessibilityDuration(totalSeconds: Int): String {
             val minutes = totalSeconds / 60
             val seconds = totalSeconds % 60
+            val minuteText = "$minutes minute${if (minutes == 1) "" else "s"}"
+            val secondText = "$seconds second${if (seconds == 1) "" else "s"}"
             return when {
-                seconds == 0 -> "$minutes minutes"
-                minutes == 0 -> "$seconds seconds"
-                else -> "$minutes minutes $seconds seconds"
+                seconds == 0 -> minuteText
+                minutes == 0 -> secondText
+                else -> "$minuteText $secondText"
             }
         }
     }

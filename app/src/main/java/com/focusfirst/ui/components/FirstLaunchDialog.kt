@@ -11,9 +11,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.focusfirst.ui.theme.TokiTypography
 
 @Composable
 fun FirstLaunchDialog(
@@ -26,8 +25,7 @@ fun FirstLaunchDialog(
         title = {
             Text(
                 text       = "Welcome to Toki",
-                fontSize   = 18.sp,
-                fontWeight = FontWeight.Bold,
+                style      = TokiTypography.cardTitle,
                 color      = Color.White,
             )
         },
@@ -35,13 +33,13 @@ fun FirstLaunchDialog(
             Column {
                 Text(
                     text     = "Toki helps you start focus sessions quickly and keep your history on this device.",
-                    fontSize = 14.sp,
+                    style    = TokiTypography.rowTitle,
                     color    = Color.White.copy(alpha = 0.8f),
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text     = "By continuing, you agree to the Terms of Service and Privacy Policy.",
-                    fontSize = 12.sp,
+                    style    = TokiTypography.supporting,
                     color    = Color.White.copy(alpha = 0.5f),
                 )
             }
@@ -54,14 +52,15 @@ fun FirstLaunchDialog(
                     contentColor   = Color.Black,
                 ),
             ) {
-                Text("Continue", fontWeight = FontWeight.Bold)
+                Text("Continue", style = TokiTypography.button)
             }
         },
         dismissButton = {
             TextButton(onClick = onLearnMore) {
                 Text(
                     text  = "Privacy Policy",
-                    color = Color(0xFF1A9E5F),
+                    color = Color.White,
+                    style = TokiTypography.action,
                 )
             }
         },

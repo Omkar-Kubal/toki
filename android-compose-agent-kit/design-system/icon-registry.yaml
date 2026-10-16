@@ -1,0 +1,13 @@
+source: Hugeicons
+integration: verify compatible official/licensed Kotlin/Compose assets or approved vector imports before adding dependencies
+sizesDp: {xs: 16, sm: 20, md: 24, lg: 28, xl: 32}
+interaction: {minimumTouchTargetDp: 48, decorativeContentDescription: null}
+roles:
+  navigation: {home: home, analytics: analytics, history: history, settings: settings, back: back}
+  actions: {add: add, edit: edit, delete: delete, save: save, search: search, filter: filter, share: share, export: export, close: close, more: more}
+  content: {wallet: wallet, transaction: transaction, calendar: calendar, chart: chart, category: category}
+  status: {success: success, warning: warning, error: error, info: info, loading: loading}
+  system: {menu: menu, notifications: notifications, visibility: visibility, visibilityOff: visibility-off, chevronNext: chevron-next}
+# Left sides are app semantics; right sides are provisional semantic catalog keys,
+# NOT guaranteed official Hugeicons asset identifiers. Resolve via a verified manifest.
+componentDefaults: {navigation: md, toolbar: md, rowTrailing: sm, inline: xs, emptyState: xl}

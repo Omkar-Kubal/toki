@@ -1,0 +1,3 @@
+interface:
+  display_name: "UX Flow Auditor"
+  short_description: "Inspect navigation, user journeys, back stacks, gestures, state restoration and interaction fri"

@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -13,57 +14,40 @@ import androidx.compose.ui.platform.LocalContext
 import com.focusfirst.data.model.TimerPhase
 
 // ============================================================================
-// Toki Dark palette — "The Focused Void"
+// Mobbin-inspired neutrals adapted to Toki's dark Home.
 // ============================================================================
-// NOTE: This palette is PRESERVED for easy revert if dynamic color is disabled.
-// To disable dynamic color: set dynamicColor = false in FocusFirstTheme below,
-// or revert to the old branch in the when{} block.
 
-private val DarkBackground             = Color(0xFF000000) // Absolute Night Black
-private val DarkSurface                = Color(0xFF111111) // Charcoal Glass
-private val DarkSurfaceHigh            = Color(0xFF1F1F1F) // Pressed Graphite
-private val DarkSurfaceVariant         = Color(0xFF242424) // Dim Graphite Track
-private val DarkPrimary                = Color(0xFFF7F7F7) // Soft White
-private val DarkOnPrimary              = Color(0xFF050505) // Pure Black Ink
-private val DarkOnSurface              = Color(0xFFF7F7F7) // Soft White
-private val DarkOnSurfaceVariant       = Color(0xFFA6A6A6) // Muted Silver Text
-// M3: outline = borders/text-field edges; outlineVariant = subtle dividers (dimmer)
-private val DarkOutline                = Color(0xFF2A2A2A) // Fine Graphite Stroke
-private val DarkOutlineVariant         = Color(0xFF1E1E1E) // Subtle Divider (dimmer)
-// Additional surface container slots (M3 §1.2 Surface & Neutral Roles)
-private val DarkSurfaceContainerLowest = Color(0xFF050505)
-private val DarkSurfaceContainer       = Color(0xFF161616)
-private val DarkSurfaceContainerHighest= Color(0xFF282828)
+private val DarkBackground             = Color(0xFF141414)
+private val DarkSurface                = Color(0xFF262626)
+private val DarkSurfaceHigh            = Color(0xFF303030)
+private val DarkSurfaceVariant         = Color(0xFF3A3A3A)
+private val DarkPrimary                = Color(0xFFFFFFFF)
+private val DarkOnPrimary              = Color(0xFF141414)
+private val DarkOnSurface              = Color(0xFFFFFFFF)
+private val DarkOnSurfaceVariant       = Color(0xFFADADAD)
+private val DarkOutline                = Color(0xFF3A3A3A)
+private val DarkOutlineVariant         = Color(0xFF303030)
+private val DarkSurfaceContainerLowest = Color(0xFF141414)
+private val DarkSurfaceContainer       = Color(0xFF2B2B2B)
+private val DarkSurfaceContainerHighest= Color(0xFF3A3A3A)
 
-private val LightBackground             = Color(0xFFF8F6F1)
-private val LightSurface                = Color(0xFFFFFCF7)
-private val LightSurfaceHigh            = Color(0xFFF0EDE6)
-private val LightSurfaceVariant         = Color(0xFFE1DDD3)
-private val LightPrimary                = Color(0xFF161616)
+private val LightBackground             = Color(0xFFFFFFFF)
+private val LightSurface                = Color(0xFFFFFFFF)
+private val LightSurfaceHigh            = Color(0xFFF3F3F3)
+private val LightSurfaceVariant         = Color(0xFFF0F0F0)
+private val LightPrimary                = Color(0xFF141414)
 private val LightOnPrimary              = Color(0xFFFFFFFF)
-private val LightOnSurface              = Color(0xFF161616)
-private val LightOnSurfaceVariant       = Color(0xFF666158)
-private val LightOutline                = Color(0xFFD5D0C7)
+private val LightOnSurface              = Color(0xFF141414)
+private val LightOnSurfaceVariant       = Color(0xFF707070)
+private val LightOutline                = Color(0xFFE0E0E0)
 
 // ============================================================================
-// The Focused Void — shared / brand colors
+// Shared commercial accent. Routine timer and task states use theme neutrals.
 // ============================================================================
 
-/**
- * Colors shared across both modes, or used outside the Material3 slot system.
- * Updated to monochrome grayscale for "The Focused Void" aesthetic.
- */
 object FocusColors {
-    val TomatoRed         = Color(0xFFF7F7F7) // Mapped to primary white
-    val BreakGreen        = Color(0xFF8E8E93) // Muted neutral grey
-    val FlowBlue          = Color(0xFFD1D1D6) // Soft grey accent
-    /** Pro / marketing card — stays dark in both modes. */
-    val ProCardBackground = Color(0xFF1A1A1A)
-    val FocusRed          = Color(0xFFE21B16)
-    val ShortBreak        = Color(0xFF8FAAA0)
-    val LongBreak         = Color(0xFF8C9EBC)
-    val Success           = Color(0xFF65A882)
-    val Warning           = Color(0xFFE1A95F)
+    val CommercialBlue    = Color(0xFF0066FF)
+    val ProCardBackground = Color(0xFF262626)
 }
 
 // ============================================================================
@@ -73,6 +57,16 @@ object FocusColors {
 private val DarkColorScheme = darkColorScheme(
     primary                     = DarkPrimary,
     onPrimary                   = DarkOnPrimary,
+    primaryContainer            = DarkPrimary,
+    onPrimaryContainer          = DarkOnPrimary,
+    secondary                   = DarkOnSurfaceVariant,
+    onSecondary                 = DarkOnPrimary,
+    secondaryContainer          = DarkSurfaceVariant,
+    onSecondaryContainer        = DarkOnSurface,
+    tertiary                    = DarkOnSurface,
+    onTertiary                  = DarkOnPrimary,
+    tertiaryContainer           = DarkSurfaceVariant,
+    onTertiaryContainer         = DarkOnSurface,
     background                  = DarkBackground,
     onBackground                = DarkOnSurface,
     surface                     = DarkSurface,
@@ -101,6 +95,16 @@ private val DarkAmoledColorScheme = DarkColorScheme.copy(
 private val LightColorScheme = lightColorScheme(
     primary                     = LightPrimary,
     onPrimary                   = LightOnPrimary,
+    primaryContainer            = LightPrimary,
+    onPrimaryContainer          = LightOnPrimary,
+    secondary                   = LightOnSurfaceVariant,
+    onSecondary                 = LightOnPrimary,
+    secondaryContainer          = LightSurfaceVariant,
+    onSecondaryContainer        = LightOnSurface,
+    tertiary                    = LightOnSurface,
+    onTertiary                  = LightOnPrimary,
+    tertiaryContainer           = LightSurfaceVariant,
+    onTertiaryContainer         = LightOnSurface,
     background                  = LightBackground,
     onBackground                = LightOnSurface,
     surface                     = LightSurface,
@@ -109,7 +113,7 @@ private val LightColorScheme = lightColorScheme(
     surfaceContainerLow         = LightSurface,
     surfaceContainer            = LightSurfaceHigh,
     surfaceContainerHigh        = LightSurfaceHigh,
-    surfaceContainerHighest     = Color(0xFFE8E3DA),
+    surfaceContainerHighest     = Color(0xFFEDEDED),
     surfaceVariant              = LightSurfaceVariant,
     onSurfaceVariant            = LightOnSurfaceVariant,
     outline                     = LightOutline,
@@ -129,8 +133,8 @@ val LocalFocusDarkTheme = staticCompositionLocalOf { true }
 /**
  * Root Material 3 theme for FocusFirst (Toki).
  *
- * Toki is a dark-only app. The Focused Void palette is always active.
- * Dynamic color (Material You) is available as an optional toggle for API 31+.
+ * Dark is the default, while the existing Light setting uses Mobbin's white
+ * canvas and ink palette. Dynamic color remains opt-in on API 31+.
  *
  * @param amoledMode   When true, forces pure-black surfaces for OLED screens.
  * @param dynamicColor Set true to use wallpaper-extracted colors on API 31+.
@@ -147,7 +151,7 @@ fun FocusFirstTheme(
 
     val scheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            dynamicDarkColorScheme(context)
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         !darkTheme -> LightColorScheme
         amoledMode -> DarkAmoledColorScheme
         else       -> DarkColorScheme
@@ -167,13 +171,7 @@ fun FocusFirstTheme(
 // ============================================================================
 
 /**
- * Progress-ring colour for [TimerPhase].
- * FOCUS → Tomato Red, SHORT_BREAK → Break Green, LONG_BREAK → Flow Blue.
- * Colors sourced from [FocusColors] so they're centrally managed.
+ * Phase contrast is neutral in both themes; labels also identify each phase.
  */
 @Composable
-fun TimerPhase.ringColor(): Color = when (this) {
-    TimerPhase.FOCUS       -> FocusColors.TomatoRed
-    TimerPhase.SHORT_BREAK -> FocusColors.BreakGreen
-    TimerPhase.LONG_BREAK  -> FocusColors.FlowBlue
-}
+fun TimerPhase.ringColor(): Color = MaterialTheme.colorScheme.primary

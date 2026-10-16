@@ -1,0 +1,26 @@
+family: Google Sans
+fontLicense: supply project-owned licensed font resources; fallback until installed
+units: {fontSize: sp, lineHeight: sp}
+primitives: {xs: 12, sm: 14, md: 16, lg: 22, xl: 28, xxl: 32}
+weights: {regular: 400, medium: 500, semibold: 600, bold: 700}
+semantic:
+  pageTitle: {size: lg, weight: semibold, lineHeight: 28}
+  cardTitle: {size: md, weight: semibold, lineHeight: 22}
+  sectionLabel: {size: xs, weight: medium, lineHeight: 16}
+  bodyTitle: {size: md, weight: medium, lineHeight: 22}
+  rowTitle: {size: sm, weight: medium, lineHeight: 20}
+  supporting: {size: xs, weight: regular, lineHeight: 16}
+  button: {size: sm, weight: semibold, lineHeight: 20}
+  action: {size: sm, weight: medium, lineHeight: 20}
+  heroMetric: {size: xxl, weight: semibold, lineHeight: 38}
+  timerHeroMetric: {size: 48, weight: bold, lineHeight: 56}
+  amountInput: {size: xl, weight: semibold, lineHeight: 34}
+  inlineAmount: {size: sm, weight: semibold, lineHeight: 20}
+  chartLabel: {size: xs, weight: regular, lineHeight: 16}
+exceptions:
+  - chartLabel: 11sp permitted only after readability review
+  - heroMetric: 700 permitted after visual review
+  - amountInput: 500 permitted after visual review
+  - inlineAmount: 500 permitted after visual review
+  - button: 16sp permitted for prominent large primary CTA after review
+  - timerHeroMetric: 48sp reserved for the Home ring display; larger than the standard heroMetric to preserve timer primacy

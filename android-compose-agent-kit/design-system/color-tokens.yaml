@@ -1,0 +1,35 @@
+# EXAMPLE NEUTRAL PALETTE only; review brand before adoption. Values are illustrative, not prescribed.
+primitives:
+  neutral0: '#FFFFFF'
+  neutral50: '#F8F9FA'
+  neutral100: '#E9ECEF'
+  neutral400: '#868E96'
+  neutral700: '#343A40'
+  neutral900: '#16181B'
+  neutral950: '#101215'
+  accent600: '#4F46E5'
+  accent400: '#A5B4FC'
+  green600: '#15803D'
+  amber600: '#B45309'
+  red600: '#B91C1C'
+  blue600: '#1D4ED8'
+semantic:
+  light:
+    surface: {canvas: neutral50, card: neutral0, raised: neutral0}
+    text: {primary: neutral900, secondary: neutral700, disabled: neutral400, inverse: neutral0}
+    border: {subtle: neutral100, strong: neutral400, focus: accent600}
+    action: {primary: accent600, onPrimary: neutral0, secondary: neutral100}
+    status: {success: green600, warning: amber600, error: red600, info: blue600}
+    chart: {series1: accent600, series2: green600, series3: amber600, series4: blue600}
+  dark:
+    surface: {canvas: neutral950, card: neutral900, raised: neutral700}
+    text: {primary: neutral0, secondary: neutral100, disabled: neutral400, inverse: neutral900}
+    border: {subtle: neutral700, strong: neutral400, focus: accent400}
+    action: {primary: accent400, onPrimary: neutral950, secondary: neutral700}
+    status: {success: green600, warning: amber600, error: red600, info: blue600}
+    chart: {series1: accent400, series2: green600, series3: amber600, series4: blue600}
+requirements:
+  normalTextContrast: '>=4.5:1'
+  largeTextOrUIContrast: '>=3:1 as applicable'
+  validateCompositedColors: true
+  avoidColorAloneAsStatus: true

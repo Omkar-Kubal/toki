@@ -6,10 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.glance.appwidget.GlanceAppWidgetManager
-import androidx.glance.appwidget.state.updateAppWidgetState
-import androidx.glance.appwidget.updateAll
-import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -17,11 +13,8 @@ import androidx.work.workDataOf
 import com.focusfirst.FocusFirstApp
 import com.focusfirst.R
 import com.focusfirst.data.model.TimerPhase
+import com.focusfirst.data.model.TimerMode
 import com.focusfirst.service.TimerAlarmWorker
-import com.focusfirst.widget.FocusFirstWidget
-import com.focusfirst.widget.WidgetKeys
-import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 // ============================================================================
@@ -41,32 +34,34 @@ class BootReceiver : BroadcastReceiver() {
         Log.d(TAG, "BOOT_COMPLETED received")
 
         val prefs      = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val wasRunning = prefs.getBoolean(PREF_WAS_RUNNING, false)
+        val active      = prefs.getBoolean(PREF_SESSION_ACTIVE, prefs.getBoolean(PREF_WAS_RUNNING, false))
+        val status      = prefs.getString(PREF_STATUS, if (active) "RUNNING" else "IDLE")
+        val mode        = prefs.getString(PREF_MODE, TimerMode.POMODORO.name)
         val endTimeMs  = prefs.getLong(PREF_END_TIME_MS, 0L)
-        val phaseName  = prefs.getString(PREF_PHASE, TimerPhase.FOCUS.name) ?: TimerPhase.FOCUS.name
+        val phaseName  = prefs.getString(PREF_PHASE, null)
 
-        if (!wasRunning || endTimeMs == 0L) {
+        if (!active || status != "RUNNING" || mode != TimerMode.POMODORO.name || endTimeMs <= 0L) {
             Log.d(TAG, "No active session before reboot — nothing to restore")
             return
         }
 
         val now          = System.currentTimeMillis()
-        val phase        = runCatching { TimerPhase.valueOf(phaseName) }.getOrDefault(TimerPhase.FOCUS)
+        val phase        = phaseName?.let { runCatching { TimerPhase.valueOf(it) }.getOrNull() }
+        if (phase == null) {
+            clearRecoveryData(prefs)
+            return
+        }
 
         if (endTimeMs > now) {
             // Timer still has time remaining — reschedule the alarm watchdog
             val remainingMs = endTimeMs - now
             Log.d(TAG, "Rescheduling alarm: phase=$phase remaining=${remainingMs / 1000}s")
-            scheduleAlarm(context, (remainingMs / 1000L).toInt(), phase)
+            scheduleAlarm(context, ((remainingMs + 999L) / 1000L).toInt(), phase)
         } else {
             // Session finished while device was rebooting — notify the user
             Log.d(TAG, "Session completed during reboot — showing missed notification")
             showMissedSessionNotification(context)
-            prefs.edit()
-                .putBoolean(PREF_WAS_RUNNING, false)
-                .putLong(PREF_END_TIME_MS, 0L)
-                .apply()
-            resetWidget(context)
+            clearRecoveryData(prefs)
         }
     }
 
@@ -89,28 +84,20 @@ class BootReceiver : BroadcastReceiver() {
             .enqueueUniqueWork("timer_alarm", ExistingWorkPolicy.REPLACE, request)
     }
 
-    private fun resetWidget(context: Context) {
-        val pendingResult = goAsync()
-        MainScope().launch {
-            try {
-                val manager   = GlanceAppWidgetManager(context)
-                val glanceIds = manager.getGlanceIds(FocusFirstWidget::class.java)
-                glanceIds.forEach { glanceId ->
-                    updateAppWidgetState(context, PreferencesGlanceStateDefinition, glanceId) { prefs ->
-                        prefs.toMutablePreferences().apply {
-                            this[WidgetKeys.RUNNING]   = false
-                            this[WidgetKeys.REMAINING] = 0
-                            this[WidgetKeys.PHASE]     = "READY"
-                        }
-                    }
-                }
-                FocusFirstWidget().updateAll(context)
-            } catch (e: Exception) {
-                Log.w(TAG, "Widget reset failed: ${e.message}")
-            } finally {
-                pendingResult.finish()
-            }
-        }
+    private fun clearRecoveryData(prefs: android.content.SharedPreferences) {
+        prefs.edit()
+            .putBoolean(PREF_SESSION_ACTIVE, false)
+            .putBoolean(PREF_WAS_RUNNING, false)
+            .putString(PREF_STATUS, "IDLE")
+            .putLong(PREF_END_TIME_MS, 0L)
+            .putInt(PREF_TOTAL_SECONDS, 0)
+            .putInt(PREF_REMAINING_SECONDS, 0)
+            .putInt(PREF_ELAPSED_SECONDS, 0)
+            .putLong(PREF_SESSION_STARTED_AT_MS, 0L)
+            .putLong(PREF_RUN_STARTED_AT_MS, 0L)
+            .putInt(PREF_SESSIONS_COMPLETED, 0)
+            .putInt(PREF_SESSIONS_IN_CYCLE, 0)
+            .apply()
     }
 
     private fun showMissedSessionNotification(context: Context) {
@@ -132,8 +119,19 @@ class BootReceiver : BroadcastReceiver() {
 
         const val PREFS_NAME  = "focusfirst_prefs"
         const val PREF_WAS_RUNNING = "timer_was_running"
+        const val PREF_SESSION_ACTIVE = "timer_session_active"
+        const val PREF_STATUS = "timer_run_status"
         const val PREF_END_TIME_MS = "timer_end_time_ms"
         const val PREF_PHASE       = "timer_phase"
+        const val PREF_MODE = "timer_mode"
+        const val PREF_PRESET = "timer_preset"
+        const val PREF_TOTAL_SECONDS = "timer_total_seconds"
+        const val PREF_REMAINING_SECONDS = "timer_remaining_seconds"
+        const val PREF_ELAPSED_SECONDS = "timer_elapsed_seconds"
+        const val PREF_SESSION_STARTED_AT_MS = "timer_session_started_at_ms"
+        const val PREF_RUN_STARTED_AT_MS = "timer_run_started_at_ms"
+        const val PREF_SESSIONS_COMPLETED = "timer_sessions_completed"
+        const val PREF_SESSIONS_IN_CYCLE = "timer_sessions_in_cycle"
 
         private const val MISSED_SESSION_NOTIFICATION_ID = 9999
     }

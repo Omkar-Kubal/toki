@@ -22,21 +22,15 @@ import android.os.VibratorManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
-import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.glance.appwidget.GlanceAppWidgetManager
-import androidx.glance.appwidget.state.updateAppWidgetState
-import androidx.glance.appwidget.updateAll
-import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.focusfirst.MainActivity
 import com.focusfirst.R
-import com.focusfirst.data.db.SessionDao
+import com.focusfirst.data.model.IntervalPreset
+import com.focusfirst.data.model.TimerMode
 import com.focusfirst.data.model.TimerPhase
 import com.focusfirst.receiver.BootReceiver
-import com.focusfirst.widget.FocusFirstWidget
-import com.focusfirst.widget.WidgetKeys
+import com.focusfirst.service.SoundManager
+import com.focusfirst.util.DndManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -48,7 +42,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Calendar
 import javax.inject.Inject
 
 // ---------------------------------------------------------------------------
@@ -67,19 +60,27 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class TimerForegroundService : Service() {
 
-    @Inject lateinit var sessionDao: SessionDao
+    @Inject lateinit var soundManager: SoundManager
+    @Inject lateinit var dndManager: DndManager
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var timerJob: Job? = null
 
     // ── Timer state ───────────────────────────────────────────────────────────
     private var remainingSeconds: Int    = 0
+    private var totalSeconds: Int        = 0
     private var currentPhase: TimerPhase = TimerPhase.FOCUS
     private var isRunning: Boolean       = false
+    private var endTimeMs: Long          = 0L
+    private var sessionStartedAtMs: Long = 0L
+    private var runStartedAtMs: Long     = 0L
+    private var timerMode: TimerMode     = TimerMode.POMODORO
+    private var preset: IntervalPreset   = IntervalPreset.CLASSIC
 
     // ── Flow mode ─────────────────────────────────────────────────────────────
     private var isFlowMode:     Boolean = false
     private var elapsedSeconds: Int     = 0
+    private var elapsedBaseSeconds: Int = 0
 
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -116,6 +117,12 @@ class TimerForegroundService : Service() {
         const val EXTRA_ELAPSED_SECONDS   = "extra_elapsed_seconds"
         const val EXTRA_IS_RUNNING        = "extra_is_running"
         const val EXTRA_IS_FLOW_MODE      = "extra_is_flow_mode"
+        const val EXTRA_IS_STOPPED        = "extra_is_stopped"
+        const val EXTRA_TOTAL_SECONDS     = "extra_total_seconds"
+        const val EXTRA_SESSION_STARTED_AT_MS = "extra_session_started_at_ms"
+        const val EXTRA_PRESET            = "extra_preset"
+        const val EXTRA_TIMER_MODE        = "extra_timer_mode"
+        const val EXTRA_END_TIME_MS       = "extra_end_time_ms"
 
         const val NOTIFICATION_ID    = 1001
         const val NOTIFY_ID_COMPLETE = 1003
@@ -128,11 +135,35 @@ class TimerForegroundService : Service() {
             context:         Context,
             durationSeconds: Int,
             phase:           TimerPhase,
+            totalSeconds: Int = durationSeconds,
+            sessionStartedAtMs: Long = System.currentTimeMillis(),
+            preset: IntervalPreset = IntervalPreset.CLASSIC,
+            endTimeMs: Long = 0L,
         ): Intent = Intent(context, TimerForegroundService::class.java).apply {
             action = ACTION_START
             putExtra(EXTRA_DURATION_SECONDS, durationSeconds)
             putExtra(EXTRA_PHASE, phase.name)
+            putExtra(EXTRA_TOTAL_SECONDS, totalSeconds)
+            putExtra(EXTRA_SESSION_STARTED_AT_MS, sessionStartedAtMs)
+            putExtra(EXTRA_PRESET, preset.name)
+            putExtra(EXTRA_TIMER_MODE, TimerMode.POMODORO.name)
+            putExtra(EXTRA_END_TIME_MS, endTimeMs)
         }
+
+        fun buildStartFlowIntent(
+            context: Context,
+            elapsedSeconds: Int,
+            sessionStartedAtMs: Long,
+        ): Intent = Intent(context, TimerForegroundService::class.java).apply {
+            action = ACTION_START_FLOW
+            putExtra(EXTRA_ELAPSED_SECONDS, elapsedSeconds)
+            putExtra(EXTRA_SESSION_STARTED_AT_MS, sessionStartedAtMs)
+            putExtra(EXTRA_PRESET, IntervalPreset.FLOW.name)
+        }
+
+        private fun ceilSeconds(milliseconds: Long): Int =
+            if (milliseconds <= 0L) 0 else ((milliseconds + 999L) / 1_000L)
+                .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
 
     override fun onCreate() {
@@ -144,12 +175,12 @@ class TimerForegroundService : Service() {
         Log.d(TAG, "onStartCommand action=${intent?.action}")
         when (intent?.action) {
             ACTION_START      -> handleStart(intent)
-            ACTION_START_FLOW -> handleStartFlow()
+            ACTION_START_FLOW -> handleStartFlow(intent)
             ACTION_PAUSE      -> handlePause()
             ACTION_RESUME     -> handleResume()
             ACTION_STOP       -> handleStop()
             ACTION_SKIP       -> handleSkip()
-            null              -> Log.w(TAG, "Restarted with null intent (START_STICKY); waiting for next command")
+            null              -> restoreAfterServiceRestart()
         }
         return START_STICKY
     }
@@ -168,42 +199,77 @@ class TimerForegroundService : Service() {
     // ========================================================================
 
     private fun handleStart(intent: Intent) {
-        val durationSeconds = intent.getIntExtra(EXTRA_DURATION_SECONDS, 25 * 60)
+        val durationSeconds = intent.getIntExtra(EXTRA_DURATION_SECONDS, 25 * 60).coerceAtLeast(1)
         val phaseName       = intent.getStringExtra(EXTRA_PHASE) ?: TimerPhase.FOCUS.name
-        currentPhase     = TimerPhase.valueOf(phaseName)
-        remainingSeconds = durationSeconds
+        currentPhase     = runCatching { TimerPhase.valueOf(phaseName) }.getOrDefault(TimerPhase.FOCUS)
+        val now = System.currentTimeMillis()
+        val requestedEndTimeMs = intent.getLongExtra(EXTRA_END_TIME_MS, 0L)
+        endTimeMs = if (requestedEndTimeMs > now) requestedEndTimeMs else now + durationSeconds * 1_000L
+        remainingSeconds = ceilSeconds(endTimeMs - now).coerceAtMost(durationSeconds)
+        totalSeconds     = intent.getIntExtra(EXTRA_TOTAL_SECONDS, durationSeconds).coerceAtLeast(durationSeconds)
+        sessionStartedAtMs = intent.getLongExtra(EXTRA_SESSION_STARTED_AT_MS, System.currentTimeMillis())
+        preset = intent.getStringExtra(EXTRA_PRESET)?.let {
+            runCatching { IntervalPreset.valueOf(it) }.getOrNull()
+        } ?: IntervalPreset.CLASSIC
+        timerMode        = TimerMode.POMODORO
         isFlowMode       = false
         isRunning        = true
+        runStartedAtMs   = now
 
         Log.d(TAG, "handleStart phase=$currentPhase duration=${durationSeconds}s")
 
-        saveBootPrefs(endTimeMs = System.currentTimeMillis() + durationSeconds * 1000L)
+        saveBootPrefs(status = "RUNNING")
         startForegroundCompat()
         acquireWakeLock(durationSeconds * 1000L)
         startTimerCoroutine()
     }
 
-    private fun handleStartFlow() {
+    private fun handleStartFlow(intent: Intent) {
         isFlowMode       = true
-        elapsedSeconds   = 0
+        timerMode        = TimerMode.FLOW
+        preset           = IntervalPreset.FLOW
+        totalSeconds     = 0
+        remainingSeconds = 0
+        elapsedSeconds   = intent.getIntExtra(EXTRA_ELAPSED_SECONDS, 0).coerceAtLeast(0)
+        elapsedBaseSeconds = elapsedSeconds
         currentPhase     = TimerPhase.FOCUS
         isRunning        = true
+        sessionStartedAtMs = intent.getLongExtra(EXTRA_SESSION_STARTED_AT_MS, System.currentTimeMillis())
+        runStartedAtMs   = System.currentTimeMillis()
 
         Log.d(TAG, "handleStartFlow")
 
-        // Flow sessions have no fixed end time; store a sentinel so BootReceiver
-        // knows a session was active even though no specific end time is set.
-        saveBootPrefs(endTimeMs = Long.MAX_VALUE)
+        saveBootPrefs(status = "RUNNING")
         startForegroundCompat()
-        acquireWakeLock(60 * 60 * 1000L) // max 1 hour for Flow sessions
         startFlowCoroutine()
     }
 
     private fun handlePause() {
         Log.d(TAG, "handlePause remaining=${remainingSeconds}s elapsed=${elapsedSeconds}s")
+        if (!isRunning && sessionStartedAtMs == 0L &&
+            completionPrefs.getString(BootReceiver.PREF_STATUS, "") == "PAUSED"
+        ) {
+            stopSelf()
+            return
+        }
         timerJob?.cancel()
         timerJob  = null
+        if (isFlowMode) {
+            elapsedSeconds = elapsedAt(System.currentTimeMillis())
+            elapsedBaseSeconds = elapsedSeconds
+            runStartedAtMs = 0L
+        } else {
+            remainingSeconds = ceilSeconds(endTimeMs - System.currentTimeMillis())
+            endTimeMs = 0L
+        }
         isRunning = false
+        saveBootPrefs(status = "PAUSED")
+        PreferenceManager.getDefaultSharedPreferences(this).edit()
+            .putBoolean(FocusGuardRepository.PREF_FOCUS_GUARD_ACTIVE, false)
+            .putInt(FocusGuardRepository.PREF_REMAINING_SECONDS, 0)
+            .apply()
+        soundManager.pause()
+        dndManager.disableDnd()
         updateNotification()
         if (isFlowMode) sendFlowTickBroadcast(isRunning = false)
         else sendTickBroadcast(isRunning = false)
@@ -212,11 +278,23 @@ class TimerForegroundService : Service() {
     private fun handleResume() {
         Log.d(TAG, "handleResume")
         if (isFlowMode) {
+            elapsedBaseSeconds = elapsedSeconds
+            runStartedAtMs = System.currentTimeMillis()
             isRunning = true
+            saveBootPrefs(status = "RUNNING")
+            startForegroundCompat()
+            setFocusGuardForResume()
+            if (currentPhase == TimerPhase.FOCUS) soundManager.resume() else soundManager.pause()
             startFlowCoroutine()
         } else {
             if (remainingSeconds <= 0) return
+            endTimeMs = System.currentTimeMillis() + remainingSeconds * 1_000L
+            runStartedAtMs = System.currentTimeMillis()
             isRunning = true
+            saveBootPrefs(status = "RUNNING")
+            startForegroundCompat()
+            setFocusGuardForResume()
+            if (currentPhase == TimerPhase.FOCUS) soundManager.resume() else soundManager.pause()
             startTimerCoroutine()
         }
     }
@@ -227,10 +305,21 @@ class TimerForegroundService : Service() {
         timerJob         = null
         isRunning        = false
         remainingSeconds = 0
+        totalSeconds     = 0
         isFlowMode       = false
         elapsedSeconds   = 0
+        elapsedBaseSeconds = 0
+        endTimeMs        = 0L
+        sessionStartedAtMs = 0L
+        runStartedAtMs   = 0L
         clearBootPrefs()
-        sendTickBroadcast(isRunning = false)
+        PreferenceManager.getDefaultSharedPreferences(this).edit()
+            .putBoolean(FocusGuardRepository.PREF_FOCUS_GUARD_ACTIVE, false)
+            .putInt(FocusGuardRepository.PREF_REMAINING_SECONDS, 0)
+            .apply()
+        soundManager.stop()
+        dndManager.disableDnd()
+        sendStoppedBroadcast()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -252,17 +341,19 @@ class TimerForegroundService : Service() {
         timerJob?.cancel()
         timerJob = serviceScope.launch {
             updateNotification()
-            while (remainingSeconds > 0 && isActive) {
+            while (isActive) {
+                remainingSeconds = ceilSeconds(endTimeMs - System.currentTimeMillis())
+                persistRuntimeState()
                 sendTickBroadcast(isRunning = true)
-                updateWidget()
-                delay(1_000L)
-                remainingSeconds--
                 updateNotification()
-                
+                if (remainingSeconds <= 0) break
                 if (remainingSeconds % 2 == 0) pollFocusGuard()
+                delay(minOf(1_000L, (endTimeMs - System.currentTimeMillis()).coerceAtLeast(1L)))
             }
             if (isActive) {
                 isRunning = false
+                remainingSeconds = 0
+                persistRuntimeState()
                 sendTickBroadcast(isRunning = false)
                 sendFinishedBroadcast()
                 withContext(Dispatchers.Main) { onPhaseFinished() }
@@ -275,12 +366,11 @@ class TimerForegroundService : Service() {
         timerJob = serviceScope.launch {
             updateNotification()
             while (isActive) {
+                elapsedSeconds = elapsedAt(System.currentTimeMillis())
+                persistRuntimeState()
                 sendFlowTickBroadcast(isRunning = true)
-                updateWidget()
                 delay(1_000L)
-                elapsedSeconds++
                 updateNotification()
-                
                 if (elapsedSeconds % 2 == 0) pollFocusGuard()
             }
         }
@@ -340,6 +430,12 @@ class TimerForegroundService : Service() {
         Log.d(TAG, "onPhaseFinished phase=$currentPhase")
         TimerAlarmWorker.setCompleted(this)
         clearBootPrefs()
+        PreferenceManager.getDefaultSharedPreferences(this).edit()
+            .putBoolean(FocusGuardRepository.PREF_FOCUS_GUARD_ACTIVE, false)
+            .putInt(FocusGuardRepository.PREF_REMAINING_SECONDS, 0)
+            .apply()
+        soundManager.stop()
+        dndManager.disableDnd()
         wakeScreen()
         postCompletionNotification(currentPhase)
         vibrate()
@@ -372,6 +468,12 @@ class TimerForegroundService : Service() {
         localBroadcastManager.sendBroadcast(intent)
     }
 
+    private fun sendStoppedBroadcast() {
+        localBroadcastManager.sendBroadcast(
+            Intent(BROADCAST_TICK).putExtra(EXTRA_IS_STOPPED, true),
+        )
+    }
+
     private fun sendFinishedBroadcast() {
         val intent = Intent(BROADCAST_FINISHED).apply {
             putExtra(EXTRA_PHASE, currentPhase.name)
@@ -380,64 +482,139 @@ class TimerForegroundService : Service() {
     }
 
     // ========================================================================
-    // Widget
-    // ========================================================================
-
-    private fun updateWidget() {
-        serviceScope.launch {
-            try {
-                val todayCount = sessionDao.observeTodayCount(todayStartMs()).first()
-                val manager    = GlanceAppWidgetManager(this@TimerForegroundService)
-                val glanceIds  = manager.getGlanceIds(FocusFirstWidget::class.java)
-
-                glanceIds.forEach { glanceId ->
-                    updateAppWidgetState(
-                        this@TimerForegroundService,
-                        PreferencesGlanceStateDefinition,
-                        glanceId,
-                    ) { prefs ->
-                        prefs.toMutablePreferences().apply {
-                            this[WidgetKeys.REMAINING] =
-                                if (isFlowMode) elapsedSeconds else remainingSeconds
-                            this[WidgetKeys.PHASE]   =
-                                if (isFlowMode) "FLOW" else currentPhase.displayName()
-                            this[WidgetKeys.RUNNING]  = isRunning
-                            this[WidgetKeys.TODAY]    = todayCount
-                        }
-                    }
-                }
-                FocusFirstWidget().updateAll(this@TimerForegroundService)
-            } catch (e: Exception) {
-                Log.w(TAG, "Widget update skipped: ${e.message}")
-            }
-        }
-    }
-
-    // ========================================================================
     // Boot persistence
     // ========================================================================
 
-    private fun saveBootPrefs(endTimeMs: Long) {
+    private fun saveBootPrefs(status: String) {
+        val active = status != "IDLE"
         completionPrefs.edit()
-            .putBoolean(BootReceiver.PREF_WAS_RUNNING, true)
-            .putLong(BootReceiver.PREF_END_TIME_MS, endTimeMs)
+            .putBoolean(BootReceiver.PREF_SESSION_ACTIVE, active)
+            .putBoolean(BootReceiver.PREF_WAS_RUNNING, status == "RUNNING")
+            .putString(BootReceiver.PREF_STATUS, status)
+            .putLong(BootReceiver.PREF_END_TIME_MS, if (isFlowMode) 0L else endTimeMs)
             .putString(BootReceiver.PREF_PHASE, currentPhase.name)
+            .putString(BootReceiver.PREF_MODE, timerMode.name)
+            .putString(BootReceiver.PREF_PRESET, preset.name)
+            .putInt(BootReceiver.PREF_TOTAL_SECONDS, totalSeconds)
+            .putInt(BootReceiver.PREF_REMAINING_SECONDS, remainingSeconds)
+            .putInt(BootReceiver.PREF_ELAPSED_SECONDS, elapsedBaseSeconds)
+            .putLong(BootReceiver.PREF_SESSION_STARTED_AT_MS, sessionStartedAtMs)
+            .putLong(BootReceiver.PREF_RUN_STARTED_AT_MS, runStartedAtMs)
+            .commit()
+    }
+
+    private fun persistRuntimeState() {
+        completionPrefs.edit()
+            .putBoolean(BootReceiver.PREF_SESSION_ACTIVE, true)
+            .putBoolean(BootReceiver.PREF_WAS_RUNNING, isRunning)
+            .putString(BootReceiver.PREF_STATUS, if (isRunning) "RUNNING" else "PAUSED")
+            .putLong(BootReceiver.PREF_END_TIME_MS, if (isFlowMode) 0L else endTimeMs)
+            .putInt(BootReceiver.PREF_REMAINING_SECONDS, remainingSeconds)
+            .putInt(BootReceiver.PREF_ELAPSED_SECONDS, elapsedBaseSeconds)
+            .putLong(BootReceiver.PREF_RUN_STARTED_AT_MS, runStartedAtMs)
             .apply()
     }
 
     private fun clearBootPrefs() {
         completionPrefs.edit()
+            .putBoolean(BootReceiver.PREF_SESSION_ACTIVE, false)
             .putBoolean(BootReceiver.PREF_WAS_RUNNING, false)
+            .putString(BootReceiver.PREF_STATUS, "IDLE")
             .putLong(BootReceiver.PREF_END_TIME_MS, 0L)
+            .putInt(BootReceiver.PREF_TOTAL_SECONDS, 0)
+            .putInt(BootReceiver.PREF_REMAINING_SECONDS, 0)
+            .putInt(BootReceiver.PREF_ELAPSED_SECONDS, 0)
+            .putLong(BootReceiver.PREF_SESSION_STARTED_AT_MS, 0L)
+            .putLong(BootReceiver.PREF_RUN_STARTED_AT_MS, 0L)
+            .putInt(BootReceiver.PREF_SESSIONS_COMPLETED, 0)
+            .putInt(BootReceiver.PREF_SESSIONS_IN_CYCLE, 0)
+            .commit()
+    }
+
+    private fun elapsedAt(nowMs: Long): Int {
+        val activeRunStart = runStartedAtMs
+        val extra = if (isRunning && activeRunStart in 1L..nowMs) {
+            ((nowMs - activeRunStart) / 1_000L).coerceAtMost(Int.MAX_VALUE.toLong())
+        } else 0L
+        return (elapsedBaseSeconds.toLong() + extra).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    }
+
+    private fun setFocusGuardForResume() {
+        PreferenceManager.getDefaultSharedPreferences(this).edit()
+            .putBoolean(
+                FocusGuardRepository.PREF_FOCUS_GUARD_ACTIVE,
+                currentPhase == TimerPhase.FOCUS,
+            )
+            .putInt(
+                FocusGuardRepository.PREF_REMAINING_SECONDS,
+                if (isFlowMode) IntervalPreset.FLOW.focusMinutes * 60 else remainingSeconds,
+            )
             .apply()
     }
 
-    private fun todayStartMs(): Long = Calendar.getInstance().apply {
-        set(Calendar.HOUR_OF_DAY, 0)
-        set(Calendar.MINUTE,      0)
-        set(Calendar.SECOND,      0)
-        set(Calendar.MILLISECOND, 0)
-    }.timeInMillis
+    private fun restoreAfterServiceRestart() {
+        val prefs = completionPrefs
+        val active = prefs.getBoolean(BootReceiver.PREF_SESSION_ACTIVE, false)
+        val status = prefs.getString(BootReceiver.PREF_STATUS, "IDLE")
+        if (!active || status != "RUNNING") {
+            stopSelf()
+            return
+        }
+        val phase = prefs.getString(BootReceiver.PREF_PHASE, null)
+            ?.let { runCatching { TimerPhase.valueOf(it) }.getOrNull() }
+        val mode = prefs.getString(BootReceiver.PREF_MODE, null)
+            ?.let { runCatching { TimerMode.valueOf(it) }.getOrNull() }
+        val savedPreset = prefs.getString(BootReceiver.PREF_PRESET, null)
+            ?.let { runCatching { IntervalPreset.valueOf(it) }.getOrNull() }
+        val start = prefs.getLong(BootReceiver.PREF_SESSION_STARTED_AT_MS, 0L)
+        if (phase == null || mode == null || savedPreset == null || start <= 0L) {
+            clearBootPrefs()
+            stopSelf()
+            return
+        }
+
+        currentPhase = phase
+        preset = savedPreset
+        sessionStartedAtMs = start
+        if (mode == TimerMode.FLOW && phase == TimerPhase.FOCUS) {
+            isFlowMode = true
+            timerMode = TimerMode.FLOW
+            totalSeconds = 0
+            remainingSeconds = 0
+            elapsedBaseSeconds = prefs.getInt(BootReceiver.PREF_ELAPSED_SECONDS, 0).coerceAtLeast(0)
+            runStartedAtMs = prefs.getLong(BootReceiver.PREF_RUN_STARTED_AT_MS, 0L)
+            if (runStartedAtMs <= 0L) {
+                clearBootPrefs()
+                stopSelf()
+                return
+            }
+            isRunning = true
+            elapsedSeconds = elapsedAt(System.currentTimeMillis())
+            elapsedBaseSeconds = elapsedSeconds
+            runStartedAtMs = System.currentTimeMillis()
+            saveBootPrefs("RUNNING")
+            setFocusGuardForResume()
+            startForegroundCompat()
+            startFlowCoroutine()
+            return
+        }
+
+        timerMode = TimerMode.POMODORO
+        isFlowMode = false
+        totalSeconds = prefs.getInt(BootReceiver.PREF_TOTAL_SECONDS, 0)
+        endTimeMs = prefs.getLong(BootReceiver.PREF_END_TIME_MS, 0L)
+        remainingSeconds = ceilSeconds(endTimeMs - System.currentTimeMillis())
+        if (totalSeconds <= 0 || remainingSeconds <= 0) {
+            clearBootPrefs()
+            stopSelf()
+            return
+        }
+        isRunning = true
+        saveBootPrefs("RUNNING")
+        setFocusGuardForResume()
+        startForegroundCompat()
+        startTimerCoroutine()
+    }
 
     // ========================================================================
     // Notification
@@ -569,17 +746,17 @@ class TimerForegroundService : Service() {
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val notification = NotificationCompat.Builder(this, CHANNEL_ALERTS)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle(title)
-            .setContentText("Tap to start the next interval.")
-            .setContentIntent(openIntent)
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setFullScreenIntent(openIntent, true)
-            .build()
+        val builder = NotificationCompat.Builder(this, CHANNEL_ALERTS)
+        builder.setSmallIcon(R.drawable.ic_launcher_foreground)
+        builder.setContentTitle(title)
+        builder.setContentText("Tap to start the next interval.")
+        builder.setContentIntent(openIntent)
+        builder.setAutoCancel(true)
+        builder.setPriority(NotificationCompat.PRIORITY_HIGH)
+        builder.setCategory(NotificationCompat.CATEGORY_ALARM)
+        builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+        builder.setFullScreenIntent(openIntent, true)
+        val notification = builder.build()
         notificationManager.notify(NOTIFY_ID_COMPLETE, notification)
     }
 

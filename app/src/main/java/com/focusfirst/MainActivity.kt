@@ -29,13 +29,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.outlined.BarChart
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.ListAlt
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -61,6 +63,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -68,12 +71,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
@@ -87,9 +92,14 @@ import com.focusfirst.ui.screens.HomeScreen
 import com.focusfirst.ui.screens.LicensesScreen
 import com.focusfirst.ui.screens.SettingsScreen
 import com.focusfirst.ui.screens.StatsScreen
+import com.focusfirst.ui.screens.TasksScreen
 import com.focusfirst.ui.theme.FocusFirstTheme
 import com.focusfirst.viewmodel.SettingsViewModel
+import com.focusfirst.viewmodel.TaskViewModel
 import com.focusfirst.viewmodel.TimerViewModel
+import com.focusfirst.util.DeepLinkDuration
+import com.focusfirst.util.ThemeModePolicy
+import com.focusfirst.util.selectedTaskIdAfterSelectionAttempt
 import com.focusfirst.R
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
@@ -100,7 +110,7 @@ import javax.inject.Inject
 // Navigation
 // ============================================================================
 
-private enum class Tab { HOME, STATS, SETTINGS }
+private enum class Tab { HOME, TASKS, STATS, SETTINGS }
 
 private data class TabItem(
     val tab:   Tab,
@@ -108,11 +118,12 @@ private data class TabItem(
     val icon:  ImageVector,
 )
 
-private val tabs = listOf(
-    TabItem(Tab.HOME,     "Focus",    Icons.Outlined.Timer),
-    TabItem(Tab.STATS,    "Insights", Icons.Outlined.BarChart),
-    TabItem(Tab.SETTINGS, "Settings", Icons.Outlined.Settings),
+private val navTabs = listOf(
+    TabItem(Tab.HOME,  "Home",     Icons.Outlined.Home),
+    TabItem(Tab.TASKS, "Tasks",    Icons.Outlined.ListAlt),
+    TabItem(Tab.STATS, "Progress", Icons.Outlined.BarChart),
 )
+private val tabOrder = listOf(Tab.HOME, Tab.TASKS, Tab.STATS, Tab.SETTINGS)
 
 // ============================================================================
 // MainActivity
@@ -125,6 +136,7 @@ class MainActivity : ComponentActivity() {
 
     /** Provides access to TimerViewModel for deep link dispatch before Compose is ready. */
     private val timerViewModelByDelegate: com.focusfirst.viewmodel.TimerViewModel by viewModels()
+    private val taskViewModelByDelegate: TaskViewModel by viewModels()
 
     private val showNotificationRationale = mutableStateOf(false)
 
@@ -141,6 +153,12 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         super.onCreate(savedInstanceState)
 
+        lifecycleScope.launch {
+            timerViewModelByDelegate.focusSessionCompleted.collect {
+                taskViewModelByDelegate.selectedTaskId?.let(taskViewModelByDelegate::incrementPomodoro)
+            }
+        }
+
         requestPostNotificationsPermissionIfNeeded()
 
         // Handle deep link if activity was cold-launched via URI
@@ -150,6 +168,17 @@ class MainActivity : ComponentActivity() {
             val settingsViewModel: SettingsViewModel = hiltViewModel()
             val billingViewModel: BillingViewModel = hiltViewModel()
             val amoledMode by settingsViewModel.amoledMode.collectAsStateWithLifecycle()
+            val themeMode by settingsViewModel.themeMode.collectAsStateWithLifecycle()
+            val darkTheme = ThemeModePolicy.isDark(themeMode)
+
+            SideEffect {
+                window.navigationBarColor = android.graphics.Color.TRANSPARENT
+                window.statusBarColor = android.graphics.Color.TRANSPARENT
+                WindowInsetsControllerCompat(window, window.decorView).apply {
+                    isAppearanceLightNavigationBars = !darkTheme
+                    isAppearanceLightStatusBars = !darkTheme
+                }
+            }
 
             var selectedTab by rememberSaveable { mutableStateOf(Tab.HOME) }
 
@@ -161,7 +190,7 @@ class MainActivity : ComponentActivity() {
             val eulaAccepted by settingsViewModel.eulaAccepted
                 .collectAsStateWithLifecycle(false)
 
-            FocusFirstTheme(amoledMode = amoledMode) {
+            FocusFirstTheme(amoledMode = amoledMode, darkTheme = darkTheme) {
                 FocusFirstAppContent(
                     showNotificationRationale = showNotificationRationale,
                     selectedTab               = selectedTab,
@@ -233,6 +262,7 @@ class MainActivity : ComponentActivity() {
      *   toki://timer/start?duration=15  — start custom duration
      *   toki://timer/start?task=Physics — start with task label
      *   toki://timer/stop               — stop current session
+     *   toki://timer/cancel             — discard current session
      *   toki://timer/pause              — pause
      *   toki://timer/resume             — resume
      */
@@ -246,11 +276,32 @@ class MainActivity : ComponentActivity() {
             "timer" -> {
                 when (uri.path) {
                     "/start" -> {
-                        val duration = uri.getQueryParameter("duration")?.toIntOrNull() ?: 25
-                        val task     = uri.getQueryParameter("task")
-                        timerViewModelByDelegate.startFromDeepLink(duration, task)
+                        val duration = DeepLinkDuration.parse(uri.getQueryParameter("duration"))
+                        if (duration == null) {
+                            Log.w("MainActivity", "Ignoring invalid timer duration: ${uri.getQueryParameter("duration")}")
+                            return
+                        }
+
+                        if (isTimerSessionActive()) return
+
+                        val taskId = uri.getQueryParameter("taskId")
+                        val taskName = uri.getQueryParameter("task")
+                        lifecycleScope.launch {
+                            val selectedTaskId = taskViewModelByDelegate
+                                .resolveDeepLinkTaskId(taskId, taskName)
+                            val timerIsActive = isTimerSessionActive()
+                            taskViewModelByDelegate.selectedTaskId = selectedTaskIdAfterSelectionAttempt(
+                                currentTaskId = taskViewModelByDelegate.selectedTaskId,
+                                requestedTaskId = selectedTaskId,
+                                timerIsActive = timerIsActive,
+                            )
+                            if (timerIsActive) return@launch
+
+                            timerViewModelByDelegate.startFromDeepLink(duration)
+                        }
                     }
                     "/stop"   -> timerViewModelByDelegate.stop()
+                    "/cancel" -> timerViewModelByDelegate.cancel()
                     "/pause"  -> timerViewModelByDelegate.pause()
                     "/resume" -> timerViewModelByDelegate.resume()
                     else -> Log.w("MainActivity", "Unknown deep link path: ${uri.path}")
@@ -259,6 +310,9 @@ class MainActivity : ComponentActivity() {
             else -> Log.w("MainActivity", "Unknown deep link host: ${uri.host}")
         }
     }
+
+    private fun isTimerSessionActive(): Boolean =
+        timerViewModelByDelegate.timerState.value.let { it.isRunning || it.isPaused }
 }
 
 // ============================================================================
@@ -275,6 +329,13 @@ private fun FocusFirstAppContent(
     val context            = LocalContext.current
     val shouldShowRationale by showNotificationRationale
     var showLicenses by rememberSaveable { mutableStateOf(false) }
+
+    BackHandler(enabled = selectedTab == Tab.SETTINGS && !showLicenses) {
+        onTabSelected(Tab.HOME)
+    }
+    BackHandler(enabled = selectedTab == Tab.TASKS || selectedTab == Tab.STATS) {
+        onTabSelected(Tab.HOME)
+    }
 
     LaunchedEffect(shouldShowRationale) {
         if (shouldShowRationale) {
@@ -309,46 +370,51 @@ private fun FocusFirstAppContent(
         },
         bottomBar = {
             FocusBottomNav(
-                selectedTab   = selectedTab,
+                selectedTab   = if (selectedTab == Tab.SETTINGS) Tab.STATS else selectedTab,
                 onTabSelected = onTabSelected,
             )
         },
     ) { scaffoldPadding ->
-        AnimatedContent(
-            targetState   = selectedTab,
-            transitionSpec = {
-                val from = tabs.indexOfFirst { it.tab == initialState }
-                val to   = tabs.indexOfFirst { it.tab == targetState }
-                val dir  = if (to > from) 1 else -1
-                // Partial (1/3 width) slide + fade at 200ms feels snappier and
-                // reduces the time both screens are rendered simultaneously.
-                (slideInHorizontally(tween(200)) { it / 3 * dir } + fadeIn(tween(200)))
-                    .togetherWith(
-                        slideOutHorizontally(tween(200)) { -it / 3 * dir } + fadeOut(tween(150))
-                    )
-            },
-            label  = "tab_slide",
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(scheme.background)
                 .padding(scaffoldPadding),
-        ) { tab ->
-            when (tab) {
-                Tab.HOME     -> HomeScreen(
-                    onNavigateToSettings = { onTabSelected(Tab.SETTINGS) },
-                )
-                Tab.STATS    -> StatsScreen(
-                    onNavigateToSettings = { onTabSelected(Tab.SETTINGS) },
-                )
-                Tab.SETTINGS -> if (showLicenses) {
-                    BackHandler { showLicenses = false }
-                    LicensesScreen(onBack = { showLicenses = false })
-                } else {
-                    SettingsScreen(
-                        onNavigateToLicenses = { showLicenses = true },
-                    )
+        ) {
+            AnimatedContent(
+                    targetState   = selectedTab,
+                    transitionSpec = {
+                        val from = tabOrder.indexOf(initialState)
+                        val to   = tabOrder.indexOf(targetState)
+                        val dir  = if (to > from) 1 else -1
+                        (slideInHorizontally(tween(200)) { it / 3 * dir } + fadeIn(tween(200)))
+                            .togetherWith(
+                                slideOutHorizontally(tween(200)) { -it / 3 * dir } + fadeOut(tween(150))
+                            )
+                    },
+                    label = "tab_slide",
+                    modifier = Modifier.fillMaxSize(),
+                ) { tab ->
+                    when (tab) {
+                        Tab.HOME -> HomeScreen(
+                            onNavigateToSettings = { onTabSelected(Tab.SETTINGS) },
+                            onNavigateToTasks = { onTabSelected(Tab.TASKS) },
+                        )
+                        Tab.TASKS -> TasksScreen(
+                            onNavigateToHome = { onTabSelected(Tab.HOME) },
+                            onNavigateToSettings = { onTabSelected(Tab.SETTINGS) },
+                        )
+                        Tab.STATS -> StatsScreen()
+                        Tab.SETTINGS -> if (showLicenses) {
+                            BackHandler { showLicenses = false }
+                            LicensesScreen(onBack = { showLicenses = false })
+                        } else {
+                            SettingsScreen(
+                                onNavigateToLicenses = { showLicenses = true },
+                            )
+                        }
+                    }
                 }
-            }
         }
     }
 }
@@ -358,16 +424,7 @@ private fun FocusFirstAppContent(
 // ============================================================================
 
 /**
- * M3-compliant bottom navigation bar (Option B — custom pill container).
- *
- * Changes from original per material_design_skills.md §7.4:
- *  - Height: 76dp → 80dp
- *  - Icon: 27dp → 24dp (M3 spec)
- *  - Label: labelMedium (12sp, Medium, 0.5sp tracking) replacing raw font props
- *  - Active indicator: 64×32dp primaryContainer pill (replaces 3dp underline bar)
- *  - Ripple: indication() on each item for M3 interaction states
- *  - Touch target: defaultMinSize(minHeight = 48dp) per item
- *  - Semantics: Role.Tab + selected state on each item
+ * Minimal three-destination navigation from the selected Home reference.
  */
 @Composable
 private fun FocusBottomNav(
@@ -380,36 +437,37 @@ private fun FocusBottomNav(
         modifier = Modifier
             .fillMaxWidth()
             .background(cs.background)
-            .padding(horizontal = 24.dp)
-            .padding(bottom = 16.dp, top = 6.dp),
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp)
+            .padding(bottom = 8.dp, top = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(72.dp)
                 .clip(RoundedCornerShape(50.dp))
                 .background(cs.surfaceContainerLow)
                 .border(1.dp, cs.outline, RoundedCornerShape(50.dp))
-                .padding(horizontal = 14.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            tabs.forEach { item ->
+            navTabs.forEach { item ->
                 val isSelected        = selectedTab == item.tab
                 val interactionSource = remember { MutableInteractionSource() }
 
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .defaultMinSize(minHeight = 48.dp)
+                        .defaultMinSize(minHeight = 52.dp)
                         .clip(RoundedCornerShape(32.dp))
                         .indication(interactionSource, ripple(bounded = true))
                         .clickable(
                             interactionSource = interactionSource,
                             indication        = null,
                         ) { onTabSelected(item.tab) }
-                        .semantics {
+                        .semantics(mergeDescendants = true) {
+                            contentDescription = item.label
                             role     = Role.Tab
                             selected = isSelected
                         },
@@ -417,29 +475,27 @@ private fun FocusBottomNav(
                 ) {
                     Column(
                         modifier = Modifier
-                            .width(76.dp)
-                            .height(52.dp)
+                            .fillMaxWidth()
                             .clip(RoundedCornerShape(50.dp))
-                            .background(
-                                if (isSelected) cs.primaryContainer
-                                else            Color.Transparent
-                            )
                             .padding(vertical = 5.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
                         Icon(
-                            imageVector        = item.icon,
-                            contentDescription = item.label,
-                            modifier           = Modifier.size(22.dp),
-                            tint               = if (isSelected) cs.onPrimaryContainer
+                            imageVector        = if (item.tab == Tab.HOME && isSelected) {
+                                Icons.Filled.Home
+                            } else item.icon,
+                            contentDescription = null,
+                            modifier           = Modifier.size(24.dp),
+                            tint               = if (isSelected) cs.onBackground
                                                  else            cs.onSurfaceVariant,
                         )
                         Text(
                             text = item.label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) cs.onPrimaryContainer else cs.onSurfaceVariant,
-                            maxLines = 1,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (isSelected) cs.onBackground else cs.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            maxLines = 2,
                         )
                     }
                 }
